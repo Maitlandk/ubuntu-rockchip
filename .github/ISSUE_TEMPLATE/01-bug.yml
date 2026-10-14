@@ -23,7 +23,7 @@ body:
     attributes:
       label: Kernel version
       description: What version of the Linux kernel are you running? (use `uname -r` to get the version string)
-      placeholder: 6.1.0-1020-rockchip
+      placeholder: 7.0.0-38-generic
     validations:
       required: true
   - type: input
@@ -31,7 +31,7 @@ body:
     attributes:
       label: SBC model
       description: What SBC are you using? (use `cat /proc/device-tree/model` to get the model string)
-      placeholder: Orange Pi 5
+      placeholder: Turing RK1
     validations:
       required: true
   - type: dropdown
