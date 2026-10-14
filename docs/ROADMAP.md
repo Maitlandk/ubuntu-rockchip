@@ -48,11 +48,17 @@ commits; nothing new is added here.
   `resolute.sh` (26.04). jammy/oracular/plucky are out of support or
   vendor-kernel-only; noble's 6.8 generic kernel predates most mainline
   RK3588 support. Fix `COMPATIBLE_SUITES` in board files to match.
-- 👤 **A4. Which boards stay?** Owner decision. Proposal: a board is
-  listed only when it has a kernel-check profile that passes and a
-  mainline U-Boot target in `packages/`; the other 30 board files and the
-  prebuilt Bluetooth/Wi-Fi helpers in `overlay/usr` that only they use
-  are removed now and come back one by one, with a tester. RK1 first.
+- 📋 **A4. RK1 only** (M). Owner decision (2026-10-14): the Turing RK1
+  (RK3588) is the only board for now; others come back one at a time, each
+  with a passing kernel-check profile, a mainline U-Boot target and a
+  tester. Remove the other 30 `config/boards/*.sh`; the
+  `u-boot-mixtile-rk3588`, `u-boot-radxa-rk3588` and `u-boot-rk3576`
+  packages; the orangepi-3b and radxa-zero3 targets inside
+  `u-boot-turing-rk3588` (`targets.mk`, patches 0004-0006, their rkbin
+  blobs); and the `overlay/usr` Bluetooth/Wi-Fi/audio helpers, none of
+  which the RK1 uses (check each against `turing-rk1.sh` first). Done when
+  `config/boards/` holds only `turing-rk1.sh` and nothing references a
+  removed board.
 
 ## B. Root filesystem for 26.04 without Joshua's forks
 
@@ -107,6 +113,42 @@ once is two variables.
   Catches packaging and boot-script regressions before anyone touches
   hardware.
 
+## F. GPU, NPU, video and display
+
+Owner decision (2026-10-14): these are in scope. The kernel side is
+already there: all six drivers are enabled in 26.04's kernel and are now
+`required` in `config/kernel-check/rk3588.txt`. What is left is userspace
+from the Ubuntu archive, one hardware check each, and one upstream gap.
+Each task can run in parallel with the others; none touches the build
+scripts until it has evidence.
+
+- 📋 **F1. GPU: Panthor + Mesa** (S, parallel). Confirm the 26.04 Mesa in
+  the archive includes the Panthor Gallium/Vulkan drivers (`panfrost` /
+  `panvk`), and which packages a server image needs for compute or
+  headless rendering. Hardware check for E1: `/dev/dri/renderD*`,
+  `vulkaninfo` or `eglinfo` naming Mali-G610.
+- 📋 **F2. Video decode: rkvdec / Hantro** (M, parallel). Find what mainline
+  7.0 decodes on the RK3588 (codecs and the VDPU381 support CNX reported)
+  and the archive userspace that drives it (GStreamer `v4l2codecs`, FFmpeg
+  V4L2 request API). Hardware check: `v4l2-ctl --list-devices`, one
+  hardware-decoded H.264 and HEVC file.
+- 📋 **F3. NPU: Rocket + Mesa Teflon** (M, parallel). The mainline NPU
+  driver is used through Mesa's Teflon TensorFlow Lite delegate, not
+  Rockchip's RKNN runtime: RKNN models do not run on it. Establish what
+  26.04's Mesa ships for Teflon on Rocket and which model formats work;
+  check whether any cluster workload uses the NPU today (ask the cluster
+  agent). Hardware check: `/dev/accel/accel0`, one TFLite model through
+  the delegate.
+- 📋 **F4. HDMI on the RK1: device tree gap** (M). Mainline's
+  `rk3588-turing-rk1.dtsi` (and the 4-line `.dts`) enable no display
+  nodes: no `vop`, `hdmi0` or `hdptxphy` (checked against torvalds/master,
+  2026-10-14). The drivers exist; the board description does not use them.
+  Find from the RK1 and Turing Pi 2 schematics/docs which HDMI port the
+  RK1 drives and on which carrier node it is wired, write the DT change
+  against mainline and submit it upstream (rule 2). Until it is merged
+  and in Ubuntu's kernel, HDMI does not work on stock Ubuntu; we do not
+  carry a private DTB.
+
 ## E. First boot on node 2
 
 👤 All hardware steps are the owner's; sessions prepare exact commands and
@@ -118,7 +160,7 @@ read the logs.
   returns to the NVMe system. Evidence to collect: `dmesg`, `lspci`,
   `lsusb -t`, `ip -d link`, `ethtool eth0`, NVMe and eMMC visible, fan
   speed under load, `cpufreq` scaling, thermal zones, the serial console
-  name. No k3s on this boot.
+  name, plus the F1-F3 hardware checks. No k3s on this boot.
 - ⏳ **E2. Read the evidence** (S, after E1). File Launchpad bugs or
   mainline reports for anything missing; record findings in CLAUDE.md.
 
