@@ -1,0 +1,79 @@
+# Does the RK1 U-Boot package still build?
+#
+# Builds packages/u-boot-turing-rk3588 (mainline U-Boot + Rockchip blobs)
+# with scripts/build-u-boot.sh, natively on arm64 in an Ubuntu 26.04
+# container, and reports the package and the image as annotations. Nothing
+# is flashed: that is the owner's job, on the BMC serial console.
+
+name: U-Boot build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - packages/u-boot-turing-rk3588/**
+      - scripts/build-u-boot.sh
+      - config/boards/turing-rk1.sh
+      - .github/workflows/u-boot-build.yml
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: |
+          shellcheck -f gcc scripts/build-u-boot.sh packages/u-boot-turing-rk3588/debian/bin/u-boot-install \
+              packages/u-boot-turing-rk3588/debian/scripts/create-orig-tarball |
+            sed -E 's/^([^:]+):([0-9]+):([0-9]+): (.*)$/::error file=\1,line=\2,col=\3::\4/'
+          exit "${PIPESTATUS[0]}"
+
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the package
+        run: |
+          mkdir -p out
+          docker run --rm -v "$PWD:/src" -w /src ubuntu:26.04 bash -euxc '
+            apt-get -qq update
+            apt-get -qq install -y --no-install-recommends \
+              ca-certificates git dpkg-dev debhelper build-essential bc bison flex \
+              device-tree-compiler python3 python3-dev python3-setuptools \
+              python3-pyelftools swig libfdt-dev libssl-dev libgnutls28-dev uuid-dev \
+              xz-utils parted udev
+            # shellcheck source=/dev/null
+            . config/boards/turing-rk1.sh
+            git config --global --add safe.directory "*"
+            scripts/build-u-boot.sh
+            cp build/*.deb /src/out/
+          '
+
+      # Annotations, because the check-runs API serves them without a
+      # GitHub sign-in (see "Reading CI results" in CLAUDE.md).
+      - name: Report
+        run: |
+          set -eu
+          deb=$(ls out/*.deb)
+          dpkg-deb -I "$deb" | sed -n 's/^ *\(Package\|Version\|Architecture\|Installed-Size\): */\1=/p' | paste -sd' ' > info
+          dpkg-deb -c "$deb" > contents
+          mkdir x && dpkg-deb -x "$deb" x
+          bin=x/usr/lib/u-boot/u-boot-rockchip.bin
+          ver=$(strings -n 8 "$bin" | grep -m1 '^U-Boot 20' || true)
+          spl=$(strings -n 8 "$bin" | grep -m1 'U-Boot SPL' || true)
+          {
+            echo "package: $(basename "$deb") $(stat -c %s "$deb") bytes sha256 $(sha256sum "$deb" | cut -d' ' -f1)"
+            echo "info: $(cat info)"
+            echo "u-boot-rockchip.bin: $(stat -c %s "$bin") bytes sha256 $(sha256sum "$bin" | cut -d' ' -f1)"
+            echo "version string: ${ver:-not found}"
+            echo "spl string: ${spl:-not found}"
+            echo "contents:"; cat contents
+          } > report
+          cat report
+          msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' report)
+          echo "::notice title=U-Boot package::$msg"
+          test -n "$ver"
