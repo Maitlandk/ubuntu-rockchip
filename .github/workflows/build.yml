@@ -1,121 +1,137 @@
+# Build the Turing RK1 Ubuntu 26.04 server image.
+#
+# Natively on arm64: the U-Boot package from u-boot-build.yml, Canonical's
+# root tarball (scripts/build-rootfs.sh), Ubuntu's generic kernel and
+# u-boot-menu installed in it (scripts/config-image.sh), then the disk
+# image and the two partition images for the eMMC test
+# (scripts/build-image.sh). The images are uploaded as an artifact, and
+# size, sha256, kernel, partition table and extlinux.conf are reported as
+# annotations (see "Reading CI results" in CLAUDE.md). Nothing is flashed.
+
 name: Build
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - build.sh
+      - scripts/build-rootfs.sh
+      - scripts/config-image.sh
+      - scripts/build-image.sh
+      - config/**
+      - overlay/**
+      - .github/workflows/build.yml
 
-run-name: Build
+permissions:
+  contents: read
+
+env:
+  BOARD: turing-rk1
+  SUITE: resolute
+  FLAVOR: server
 
 jobs:
-  rootfs:
-    runs-on: ubuntu-latest
-    name: Build rootfs 
-    strategy:
-        matrix:
-          flavor:
-            - server
-          suite:
-            - resolute
+  u-boot:
+    uses: ./.github/workflows/u-boot-build.yml
+
+  image:
+    needs: u-boot
+    runs-on: ubuntu-24.04-arm
     steps:
-      - name: Get more disk space
-        uses: jlumbroso/free-disk-space@main
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
         with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Checkout LFS
-        shell: bash
-        run: git lfs fetch && git lfs checkout
+          name: u-boot-turing-rk1
+          path: build
 
       - name: Install dependencies
-        shell: bash
         run: |
-          sudo apt-get update && apt-get purge needrestart -y && sudo apt-get upgrade -y
-          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu bison \
-          qemu-user-static qemu-system-arm qemu-efi u-boot-tools binfmt-support \
-          debootstrap flex libssl-dev bc rsync kmod cpio xz-utils fakeroot parted \
-          udev dosfstools uuid-runtime git-lfs device-tree-compiler python2 python3 \
-          python-is-python3 fdisk bc debhelper python3-pyelftools python3-setuptools \
-          python3-distutils python3-pkg-resources swig libfdt-dev libpython3-dev dctrl-tools \
-          ubuntu-cloudimage-keyring
+          sudo apt-get -qq update
+          sudo apt-get -qq install --no-install-recommends \
+            parted dosfstools uuid-runtime xz-utils udev gdisk curl gpgv ubuntu-cloudimage-keyring
 
       - name: Build
-        shell: bash
-        run: sudo ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only
+        run: sudo ./build.sh --board="$BOARD" --suite="$SUITE" --flavor="$FLAVOR"
 
-      - name: Upload
-        uses: actions/upload-artifact@v4.3.3
+      - uses: actions/upload-artifact@v7
         with:
-            name: ubuntu-26.04-preinstalled-${{ matrix.flavor }}-arm64-rootfs
-            path: ./build/ubuntu-26.04-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz
-            if-no-files-found: error
-
-  build:
-    runs-on: ubuntu-latest
-    needs: [rootfs]
-    name: Build image 
-
-    strategy:
-      matrix:
-        board:
-          - turing-rk1
-        flavor:
-          - server
-        suite:
-          - resolute
-
-    steps:
-      - name: Get more disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Checkout LFS
-        shell: bash
-        run: git lfs fetch && git lfs checkout
-
-      - name: Install dependencies
-        shell: bash
-        run: |
-          sudo apt-get update && apt-get purge needrestart -y && sudo apt-get upgrade -y
-          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu bison \
-          qemu-user-static qemu-system-arm qemu-efi u-boot-tools binfmt-support \
-          debootstrap flex libssl-dev bc rsync kmod cpio xz-utils fakeroot parted \
-          udev dosfstools uuid-runtime git-lfs device-tree-compiler python2 python3 \
-          python-is-python3 fdisk bc debhelper python3-pyelftools python3-setuptools \
-          python3-distutils python3-pkg-resources swig libfdt-dev libpython3-dev dctrl-tools
-
-      - name: Checkout rootfs
-        uses: actions/download-artifact@v4.1.2
-        with:
-            name: ubuntu-26.04-preinstalled-${{ matrix.flavor }}-arm64-rootfs
-            path: ./build/
-
-      - name: Build
-        shell: bash
-        run: sudo ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
-
-      - name: Upload
-        uses: actions/upload-artifact@v4.3.3
-        with:
-          name: ubuntu-26.04-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}
-          path: ./images/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*
+          name: ubuntu-26.04-${{ env.FLAVOR }}-${{ env.BOARD }}
+          path: images/*
+          compression-level: 0
           if-no-files-found: error
 
-      - name: Clean cache
-        shell: bash
-        run: sync && sudo rm -rf ./images/ ./build/ && sync
+      # Look inside what was built. The annotations are the report; the
+      # check-runs API serves them without a GitHub sign-in and job logs it
+      # does not.
+      - name: Report
+        run: |
+          set -eu
+          cd images
+          sudo mkdir -p /mnt/chk/root /mnt/chk/cidata
+          disk=$(ls ./*.img.xz | grep -v -e '\.cidata\.' -e '\.root\.'); cidata=$(ls ./*.cidata.img.xz); root=$(ls ./*.root.img.xz)
+          : > ../report; : > ../errors
+          {
+            for f in "$disk" "$cidata" "$root"; do
+              echo "$(basename "$f"): $(stat -c %s "$f") bytes xz, sha256 $(sha256sum "$f" | cut -d' ' -f1)"
+            done
+            echo
+          } >> ../report
+
+          # Partition table and boot loader, from the disk image.
+          xz -dc "$disk" | dd of=/tmp/disk.img bs=1M conv=sparse status=none
+          {
+            echo "partition table:"
+            sgdisk -p /tmp/disk.img 2>&1 | sed -n '/^Number/,$p'
+            for n in 1 2; do
+              sgdisk -i "$n" /tmp/disk.img 2>&1 | grep -E 'Partition GUID code|Attribute flags|Partition name'
+            done
+            echo "boot loader (sector 64): $(dd if=/tmp/disk.img bs=512 skip=64 count=8192 2>/dev/null | strings -n 8 | grep -m1 'U-Boot SPL' || echo none)"
+          } >> ../report
+          sgdisk -i 2 /tmp/disk.img 2>&1 | grep -q 'Attribute flags: 0000000000000004' ||
+            echo "root partition is not marked legacy BIOS bootable" >> ../errors
+          sgdisk -i 2 /tmp/disk.img 2>&1 | grep -q 'C12A7328' &&
+            echo "root partition still has the EFI System Partition type" >> ../errors
+          grep -q 'U-Boot SPL 2026' ../report || echo "no U-Boot 2026 SPL at sector 64" >> ../errors
+
+          # The root filesystem image, mounted.
+          xz -dc "$root" > /tmp/root.img
+          sudo mount -o loop,ro /tmp/root.img /mnt/chk/root
+          ext=/mnt/chk/root/boot/extlinux/extlinux.conf
+          kver=$(ls /mnt/chk/root/boot/vmlinuz-* | sed 's,.*/vmlinuz-,,')
+          uuid=$(sudo blkid -s UUID -o value /tmp/root.img)
+          {
+            echo
+            echo "kernel: $(echo $kver)"
+            echo "root filesystem: $(sudo blkid -o value -s TYPE /tmp/root.img) UUID $uuid, $(df -h --output=size,used /mnt/chk/root | tail -n1 | tr -s ' ')"
+            echo "fstab: $(grep -v '^#' /mnt/chk/root/etc/fstab | tr -s ' ' | paste -sd';')"
+            echo "extlinux.conf:"; cat "$ext"
+          } >> ../report
+          grep -q "root=UUID=$uuid" "$ext" || echo "extlinux.conf does not point at root=UUID=$uuid" >> ../errors
+          for k in $kver; do
+            for f in "boot/vmlinuz-$k" "boot/initrd.img-$k" "lib/firmware/$k/device-tree/rockchip/rk3588-turing-rk1.dtb"; do
+              [ -f "/mnt/chk/root/$f" ] || echo "no /$f in the root image" >> ../errors
+            done
+          done
+          grep -rqs 'unified_cgroup_hierarchy' "$ext" /mnt/chk/root/etc/default /mnt/chk/root/etc/kernel 2>/dev/null &&
+            echo "cgroup v1 on the kernel command line" >> ../errors
+          sudo umount /mnt/chk/root
+
+          # The seed partition image.
+          xz -dc "$cidata" > /tmp/cidata.img
+          sudo mount -o loop,ro /tmp/cidata.img /mnt/chk/cidata
+          echo "cidata: $(sudo blkid -o export /tmp/cidata.img | grep -E '^(TYPE|LABEL)=' | paste -sd' '), $(ls /mnt/chk/cidata | paste -sd' ')" >> ../report
+          for f in user-data meta-data network-config; do
+            [ -f "/mnt/chk/cidata/$f" ] || echo "no $f on the CIDATA partition" >> ../errors
+          done
+          sudo umount /mnt/chk/cidata
+
+          cd ..
+          cat report
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            echo "::error title=image::$line"
+          done < errors
+          msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' report)
+          echo "::notice title=image ($BOARD $SUITE $FLAVOR)::$msg"
+          test ! -s errors
