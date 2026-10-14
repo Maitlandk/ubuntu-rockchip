@@ -98,7 +98,7 @@ echo "software-properties-common" > config/package-lists/my.list.chroot
 if [ "${PROJECT}" == "ubuntu" ]; then
     # Specific packages to install for ubuntu desktop
     (
-        echo "ubuntu-desktop-rockchip"
+        echo "ubuntu-desktop"
         echo "oem-config-gtk"
         echo "ubiquity-frontend-gtk"
         echo "ubiquity-slideshow-ubuntu"
@@ -106,7 +106,7 @@ if [ "${PROJECT}" == "ubuntu" ]; then
     ) >> config/package-lists/my.list.chroot
 else
     # Specific packages to install for ubuntu server
-    echo "ubuntu-server-rockchip" >> config/package-lists/my.list.chroot
+    echo "ubuntu-server" >> config/package-lists/my.list.chroot
 fi
 
 # Build the rootfs
