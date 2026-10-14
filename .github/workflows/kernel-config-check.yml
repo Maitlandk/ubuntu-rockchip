@@ -38,6 +38,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Lint
+        run: shellcheck scripts/check-kernel-config.sh
+
       - name: Download the generic kernel packages
         run: |
           mkdir -p pkgs
