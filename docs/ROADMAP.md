@@ -131,17 +131,17 @@ from the Ubuntu archive, one hardware check each, and one upstream gap.
 Each task can run in parallel with the others; none touches the build
 scripts until it has evidence.
 
-- 📋 **F1. GPU: Panthor + Mesa** (S, parallel). Confirm the 26.04 Mesa in
+- ✅ **F1. GPU: Panthor + Mesa** (S; researched 2026-10-14, hardware check in E1). Confirm the 26.04 Mesa in
   the archive includes the Panthor Gallium/Vulkan drivers (`panfrost` /
   `panvk`), and which packages a server image needs for compute or
   headless rendering. Hardware check for E1: `/dev/dri/renderD*`,
   `vulkaninfo` or `eglinfo` naming Mali-G610.
-- 📋 **F2. Video decode: rkvdec / Hantro** (M, parallel). Find what mainline
+- ✅ **F2. Video decode: rkvdec / Hantro** (M; researched 2026-10-14, hardware check in E1). Find what mainline
   7.0 decodes on the RK3588 (codecs and the VDPU381 support CNX reported)
   and the archive userspace that drives it (GStreamer `v4l2codecs`, FFmpeg
   V4L2 request API). Hardware check: `v4l2-ctl --list-devices`, one
   hardware-decoded H.264 and HEVC file.
-- 📋 **F3. NPU: Rocket + Mesa Teflon** (M, parallel). The mainline NPU
+- ✅ **F3. NPU: Rocket + Mesa Teflon** (M; researched 2026-10-14, hardware check in E1; one question open for the owner). The mainline NPU
   driver is used through Mesa's Teflon TensorFlow Lite delegate, not
   Rockchip's RKNN runtime: RKNN models do not run on it. Establish what
   26.04's Mesa ships for Teflon on Rocket and which model formats work;
@@ -158,6 +158,156 @@ scripts until it has evidence.
   and in Ubuntu's kernel, HDMI does not work on stock Ubuntu; we do not
   carry a private DTB.
 
+### F1-F3 findings (research, 2026-10-14)
+
+Method: package facts are read from the 26.04 (`resolute`) arm64 indexes
+and `.deb` contents on `ports.ubuntu.com` (release, `-updates`,
+`-security`; indexes dated 2026-10-14), kernel facts from the `v7.0`
+tag of torvalds/linux (Ubuntu's `7.0.0-38` is based on it), Mesa facts from
+the `mesa-26.0.8` tag. Nothing here was run on hardware; "expect" lines
+are predictions for E1 to confirm or refute.
+
+**F1. GPU: yes, nothing to carry.**
+
+- Archive: Mesa `26.0.8-1ubuntu0.3` in `resolute-updates` (release pocket:
+  `26.0.3-1ubuntu1`). `mesa-vulkan-drivers` (main) ships
+  `libvulkan_panfrost.so` and `icd.d/panfrost_icd.json`: that is **PanVK**.
+  `libgl1-mesa-dri` (main) has the `panthor_dri.so` entry point (symlink to
+  `libdril_dri.so`); the Panfrost Gallium driver lives in `mesa-libgallium`
+  (strings in `libgallium-26.0.8-*.so`: `panfrost`, `panthor`,
+  `PANTHOR_BO_QUERY_INFO`).
+- Support level at the 26.0.8 tag (`docs/drivers/panfrost.rst`): Mali-G610
+  is Valhall v10, OpenGL ES 3.1 / OpenGL 3.1 / **Vulkan 1.4**, and Mesa
+  lists both the GLES and the Vulkan driver as *conformant* on G610.
+  `panvk_physical_device.c` only gates v6/v7 behind
+  `PAN_I_WANT_A_BROKEN_VULKAN_DRIVER`; v10 loads without it. GPU id
+  `0xa807` is "G610" in `pan_model.c`.
+- **OpenCL: not available.** The same doc says OpenCL is not supported at
+  this time. `mesa-opencl-icd` (universe, rusticl) exists but Panfrost is
+  not a supported rusticl target in 26.0.8. Compute means Vulkan compute.
+- Firmware: Panthor (CSF) needs `arm/mali/arch10.8/mali_csffw.bin.zst`,
+  which is in `linux-firmware-misc` (listed in `Contents-arm64`, both
+  `resolute` and `-updates`). `linux-image-generic` depends on
+  `linux-firmware`, which depends on `linux-firmware-misc`, so it is
+  installed with the kernel. (Which `archN.M` the G610 loads is inferred
+  from the file list and upstream convention; E1's dmesg confirms it.)
+- Kernel: `panthor.ko` is in `linux-modules-7.0.0-38-generic`. The RK1
+  device tree (v7.0 `rk3588-turing-rk1.dtsi`) sets `&gpu { mali-supply;
+  status = "okay" }`; the base dtsi has `rockchip,rk3588-mali` /
+  `arm,mali-valhall-csf`. No DT work for the GPU.
+- Packages for a server image: render/compute needs `mesa-vulkan-drivers`
+  (+ `libvulkan1`); headless GL/GLES/EGL (GBM, surfaceless) needs
+  `libegl-mesa0`, `libgbm1`, `libgl1-mesa-dri`, `mesa-libgallium` (all
+  main). `mesa-vulkan-drivers` is 22 MB by itself and pulls `libllvm21`
+  and X/Wayland client libraries. Diagnostics (`vulkan-tools`,
+  `mesa-utils`) are universe and test-only; do not put them in the image.
+
+**F2. Video decode: H.264 and HEVC (and AV1) in hardware through one
+GStreamer path; no FFmpeg path.**
+
+- Kernel `v7.0`, `drivers/media/platform/rockchip/rkvdec/rkvdec.c`:
+  `rockchip,rk3588-vdec` binds the **VDPU381** variant with exactly two
+  coded formats, H.264 (`H264_SLICE`; decoded NV12, NV15, NV16, NV20, i.e.
+  8/10-bit 4:2:0 and 4:2:2) and HEVC (`HEVC_SLICE`; NV12, NV15), up to
+  65520 / 65472 px. **No VP9 on the RK3588** (the VP9 code is the RK3399
+  variant only).
+- Both `vdec0` and `vdec1` are in the base dtsi and enabled by default,
+  but the driver has no multi-core support: the second core logs
+  "missing multi-core support, ignoring this instance" and returns
+  `-ENODEV` (`rkvdec_disable_multicore`). Expect one rkvdec video device,
+  not two. Throughput is that of one core.
+- AV1: `rockchip,rk3588-av1-vpu` -> `rk3588_vpu981_variant` in the
+  verisilicon (`hantro-vpu.ko`) driver, AV1 decode only. The `av1d` node
+  is enabled by default.
+- `vpu121` (`rockchip,rk3588-vpu121`, falls back to `rockchip,rk3568-vpu`):
+  the older Hantro VDPU2 core, MPEG-2, VP8 and H.264 decode.
+  `rockchip,rk3588-vepu121` (two or more nodes) is JPEG **encode** only.
+  `drivers/media/platform/rockchip/` has no RKVENC driver (only `rga`,
+  `rkcif`, `rkisp1`, `rkvdec`): **there is no mainline H.264/HEVC hardware
+  encoder** for the RK3588 in 7.0.
+- Modules in `linux-modules-7.0.0-38-generic`: `rockchip-vdec.ko`,
+  `hantro-vpu.ko`. No board DT change: the RK1 dtsi touches no video
+  node and the base dtsi disables none.
+- Userspace in the archive: **GStreamer 1.28.2**.
+  `gstreamer1.0-plugins-bad` (**universe**, `1.28.2-1ubuntu1.2`) ships
+  `libgstv4l2codecs.so` with the stateless decoders for H.264, H.265, AV1,
+  VP8, VP9 and MPEG-2 (element names `v4l2slh264dec`, `v4l2slh265dec`,
+  `v4l2slav1dec`, ...; from the plugin's strings). The parsers
+  (`h264parse`, `h265parse`) are also in plugins-bad; demuxers are in
+  plugins-good (main). plugins-bad has a large dependency set (GTK,
+  OpenEXR, ...), so it is for the test, not for a base image.
+- **FFmpeg cannot use rkvdec from this archive.** `libavcodec62`
+  `7:8.0.1-3ubuntu2` (universe): the configure line has no V4L2 request
+  option, and the library contains `{h264,hevc,vp9}_v4l2m2m` (the
+  *stateful* V4L2 wrappers, a different kernel API than rkvdec's
+  stateless one) but no `v4l2_request` hwaccel. So `ffmpeg` and `mpv`
+  (0.41.0, built on it) decode in software on this node. Do not promise
+  hardware decode in those; if it matters, file a Launchpad bug against
+  `ffmpeg` (rule 2).
+- Not in the archive, and not needed: Rockchip MPP / `librga` / `rkmpp`
+  (vendor stack; the arm64 indexes list no package with those names).
+
+**F3. NPU: the kernel driver and the delegate are in 26.04; a model
+runtime for Python is not.**
+
+- Kernel: `rocket.ko` (`drivers/accel/rocket`, "Rocket") is in
+  `linux-modules-7.0.0-38-generic`; it binds `rockchip,rk3588-rknn-core`,
+  loads no firmware, and exposes `/dev/accel/accel*`. The RK1 dtsi
+  **already enables** `rknn_core_0..2` and `rknn_mmu_0..2` (with
+  `vdd_npu_s0`), so there is no DT work.
+- Mesa: `mesa-teflon-delegate` (**universe**, `26.0.8-1ubuntu0.3`, 1.2 MB)
+  ships a single file, `/usr/lib/teflon/libteflon.so` (not on the library
+  path: it is passed by path). Its strings contain `rocket`,
+  `ROCKET_DEBUG`, `TEFLON_DEBUG` and `tflite_plugin_create_delegate`, so
+  the Rocket driver is built in. Mesa's pipe loader probes
+  `/dev/accel/accel%d` for it (`pipe_loader_drm.c`).
+- What it runs (Mesa 26.0.8): the only documented hardware is "RK3588 NPU
+  on PINE64 QuartzPro64", with **UINT8**-quantised MobileNet V1 (~18 ms),
+  MobileNet V2 (~21 ms) and SSDLite MobileDet (~48 ms). Rocket's
+  `rkt_ml_operation_supported` accepts only **convolution (including
+  depthwise)** and **add**, and for convolutions only per-tensor
+  quantisation and dilation 1. Other operators (pooling, concat, fully
+  connected, ...) are recognised by Teflon but rejected by the Rocket
+  driver today and stay on the CPU, so a network with them is only partly
+  accelerated.
+- Model format: **TensorFlow Lite flatbuffers (`.tflite`), fully integer
+  quantised (uint8; int8 per-tensor appears in the delegate code but is
+  not in Mesa's tested list)**. Not RKNN (`.rknn`) models, not ONNX, not
+  float models. Anything built on Rockchip's RKNN toolkit or `librknnrt`
+  will not run on this driver.
+- Runtime: the delegate is an *external delegate* loaded by a TFLite
+  runtime. The archive has only the C++ library `libtensorflow-lite2.14.1`
+  / `libtensorflow-lite-dev` (`2.14.1+dfsg-3build1`, universe), which
+  exports `TfLiteExternalDelegateCreate`. There is **no Python TFLite
+  package in the archive** (no `python3-tflite-runtime`, no
+  `python3-tensorflow`, no LiteRT; `python3` is 3.14.3). Python users need
+  a pip wheel: `ai-edge-litert` 2.3.0 has a `cp314`
+  `manylinux_2_27_aarch64` wheel and its `interpreter.py` defines
+  `load_delegate` (checked in the wheel). Mesa vendors its own TFLite
+  headers (`include/tensorflow/lite/`, schema v2.15.0) and `libteflon.so`
+  does not link TFLite; it resolves the runtime's symbols from the host
+  process. Compatibility with the archive's 2.14.1 or pip's LiteRT 2.3.0
+  is **unverified**: E1 decides.
+
+**Open question for the owner (F3):** does any cluster workload use the
+NPU today (RKNN toolkit, an `rknpu` device passed into pods, a detector
+such as Frigate)? The cluster agent cannot be reached from this session,
+so this is unanswered. If yes, that workload's models need converting to
+quantised TFLite and re-validating before node 2 can leave the vendor
+kernel; if no, F3 stays a one-model smoke test.
+
+**Not examined:** ONNX Runtime (`libonnxruntime1.23` 1.23.2 is in the
+archive, but whether any execution provider can drive Rocket was not
+looked at); video encode paths; HDMI (F4).
+
+**Side findings for other tasks:**
+
+- B2: `rk3588-turing-rk1.dts` at v7.0 has `stdout-path = "serial9:115200n8"`,
+  so the mainline console should be `ttyS9`, like the vendor kernel, not
+  `ttyS0`. This is source, not observed: confirm on the console in E1, and
+  check that Ubuntu's `CONFIG_SERIAL_8250_NR_UARTS` / `RUNTIME_UARTS`
+  allows line 9.
+
 ## E. First boot on node 2
 
 👤 All hardware steps are the owner's; sessions prepare exact commands and
@@ -169,7 +319,84 @@ read the logs.
   returns to the NVMe system. Evidence to collect: `dmesg`, `lspci`,
   `lsusb -t`, `ip -d link`, `ethtool eth0`, NVMe and eMMC visible, fan
   speed under load, `cpufreq` scaling, thermal zones, the serial console
-  name, plus the F1-F3 hardware checks. No k3s on this boot.
+  name, plus the F1-F3 hardware checks below. No k3s on this boot.
+
+  **F1-F3 hardware checks.** Run as root, after the base evidence; installing
+  test tools into the eMMC root is fine, the NVMe system is untouched.
+  Save all output. Each block says what a pass looks like.
+
+  GPU (F1):
+
+  ```sh
+  ls -l /dev/dri/                       # card*, renderD128 (and maybe 129)
+  for n in /sys/class/drm/renderD*; do echo "$n -> $(basename "$(readlink "$n/device/driver")")"; done   # one is panthor
+  dmesg | grep -iE 'panthor|mali|firmware'   # panthor, G610, firmware loaded, no "Failed to load"
+  apt-get install -y vulkan-tools mesa-utils mesa-vulkan-drivers
+  vulkaninfo --summary | grep -iE 'deviceName|driverName|apiVersion|deviceType'   # Mali-G610, PanVK, 1.4; NOT llvmpipe
+  eglinfo -B 2>&1 | grep -iE 'renderer|OpenGL ES profile version'   # Mali-G610 / Panfrost, ES 3.1
+  ```
+
+  Video (F2):
+
+  ```sh
+  apt-get install -y v4l-utils gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav ffmpeg
+  dmesg | grep -iE 'rkvdec|hantro|vdec|multi-core'   # the second vdec: "missing multi-core support" is expected
+  v4l2-ctl --list-devices
+  for d in /dev/video*; do echo "== $d"; v4l2-ctl -d "$d" --info | grep -E 'Driver name|Card type'; v4l2-ctl -d "$d" --list-formats-out; done   # rkvdec: H.264 and HEVC slice formats; hantro: AV1, MPEG2, VP8 ...
+  gst-inspect-1.0 v4l2slh264dec v4l2slh265dec v4l2slav1dec | grep -E 'Long-name|No such'
+  # test clips, made on another machine and copied over:
+  #   ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 20 -c:v libx264 -profile:v high -pix_fmt yuv420p h264.mp4
+  #   ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 20 -c:v libx265 -pix_fmt yuv420p -tag:v hvc1 hevc.mp4
+  grep -iE 'vdec|video-codec' /proc/interrupts > /tmp/irq.before
+  time gst-launch-1.0 filesrc location=h264.mp4 ! qtdemux ! h264parse ! v4l2slh264dec ! fakesink sync=false
+  time gst-launch-1.0 filesrc location=hevc.mp4 ! qtdemux ! h265parse ! v4l2slh265dec ! fakesink sync=false
+  grep -iE 'vdec|video-codec' /proc/interrupts > /tmp/irq.after; diff /tmp/irq.before /tmp/irq.after
+  time gst-launch-1.0 filesrc location=h264.mp4 ! qtdemux ! h264parse ! avdec_h264 ! fakesink sync=false   # software baseline
+  ffmpeg -hide_banner -hwaccels         # F2 predicts no V4L2 request hwaccel
+  ```
+
+  Pass: both hardware pipelines reach EOS, the rkvdec interrupt counter
+  grows, and user CPU time is far below the software baseline.
+
+  NPU (F3):
+
+  ```sh
+  ls -l /dev/accel/                     # accel0
+  lsmod | grep -w rocket; dmesg | grep -iE 'rocket|rknn|npu'
+  apt-get install -y mesa-teflon-delegate python3-venv python3-numpy
+  ls -l /usr/lib/teflon/libteflon.so
+  python3 -m venv --system-site-packages /root/tf && /root/tf/bin/pip install ai-edge-litert pillow   # outside the archive, test only
+  curl -LO http://download.tensorflow.org/models/mobilenet_v1_2018_08_02/mobilenet_v1_1.0_224_quant.tgz && tar xzf mobilenet_v1_1.0_224_quant.tgz
+  # save the script below as npu.py, then:
+  grep -i rknn /proc/interrupts > /tmp/npu.before
+  /root/tf/bin/python npu.py mobilenet_v1_1.0_224_quant.tflite cpu
+  TEFLON_DEBUG=verbose /root/tf/bin/python npu.py mobilenet_v1_1.0_224_quant.tflite npu
+  grep -i rknn /proc/interrupts > /tmp/npu.after; diff /tmp/npu.before /tmp/npu.after
+  ```
+
+  `npu.py`:
+
+```python
+import sys, time, numpy as np
+from ai_edge_litert.interpreter import Interpreter, load_delegate
+model, mode = sys.argv[1], sys.argv[2]
+d = [load_delegate("/usr/lib/teflon/libteflon.so")] if mode == "npu" else []
+it = Interpreter(model_path=model, experimental_delegates=d); it.allocate_tensors()
+i, o = it.get_input_details()[0], it.get_output_details()[0]
+np.random.seed(0); it.set_tensor(i["index"], np.random.randint(0, 255, i["shape"], dtype=np.uint8))
+it.invoke(); t = time.time()
+for _ in range(50): it.invoke()
+print(mode, "%.1f ms" % ((time.time() - t) / 50 * 1000), "top1", int(np.argmax(it.get_tensor(o["index"]))))
+```
+
+  Pass: the verbose log shows the `rocket`
+  driver loaded and convolutions "supported", the NPU interrupt counters
+  grow, and `npu` is markedly faster than `cpu` (Mesa quotes ~18 ms on a
+  QuartzPro64) with the same top-1. If `load_delegate` crashes or reports
+  a registration error, suspect the unverified TFLite-vs-Mesa-header
+  compatibility (F3) and retry with a C++ client against the archive's
+  `libtensorflow-lite-dev` before filing anything. The pip install is for
+  this test only; the image does not carry it.
 - ⏳ **E2. Read the evidence** (S, after E1). File Launchpad bugs or
   mainline reports for anything missing; record findings in CLAUDE.md.
 
@@ -231,3 +458,9 @@ CI run · result · cost if known · next.
   locally · A1-A4 done: 30 boards, 3 U-Boot packages, the kernel build,
   PPAs, 4 suites and overlay/usr removed · cost unknown · next: B2 needs
   the rootfs builder (B1); build.yml is untested until D1.
+- 2026-10-14 · F1-F3 (research only; no build scripts touched) · Sonnet ·
+  docs commit on main · no CI · GPU/video/NPU userspace is in the 26.04
+  archive (Mesa 26.0.8 PanVK, GStreamer v4l2codecs, mesa-teflon-delegate);
+  gaps: no OpenCL, no VP9 or encode, no FFmpeg hwaccel, no Python TFLite
+  in the archive; F3 cluster-NPU question open for the owner · cost not
+  read · next: E1 commands are in place.
