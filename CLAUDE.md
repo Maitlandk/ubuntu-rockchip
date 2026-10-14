@@ -13,9 +13,13 @@ What the tree still is today: upstream `Joshua-Riek/ubuntu-rockchip` at
 pulls PPAs (`jjriek/*`, panfork) that are no longer maintained. All of that
 goes away; it is not updated or ported.
 
-Open question #1, answered by `.github/workflows/kernel-config-check.yml`:
-does Ubuntu's generic arm64 kernel enable everything the RK3588 and the RK1
-need, and does it ship the RK1 device tree?
+Ubuntu's generic arm64 kernel enables everything the RK3588 and the RK1
+need and ships the RK1 device tree (26.04, 7.0.0-38; details in
+`docs/ROADMAP.md`, Q1). `.github/workflows/kernel-config-check.yml` keeps
+checking that.
+
+**Work is planned in `docs/ROADMAP.md`**, one session per task. Read the
+task you were given there before reading code.
 
 ## Rules
 
