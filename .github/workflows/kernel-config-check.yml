@@ -99,6 +99,19 @@ jobs:
             echo "$line"
             report+="$line"$'\n'
           done
+          # linux-image-generic need not pull in linux-modules-extra, so an
+          # =m driver shipped there would be missing on a stock install.
+          # List the drivers of interest that live in -extra (none is good).
+          extra=$(ls pkgs/linux-modules-extra-*.deb 2>/dev/null || true)
+          if [ -n "$extra" ]; then
+            hits=$(dpkg-deb -c "$extra" | awk '{print $NF}' | grep '\.ko' |
+                   grep -E 'rockchip|/rk|rk8|dwmac|stmmac|dwcmshc|fan53555|pwm-fan|dwc3|xhci-plat|ehci-platform|ohci-platform|/nvme|scmi|ahci|panthor|rocket|hantro|io-domain' || true)
+            line="linux-modules-extra: ${hits:-no RK3588/RK1 drivers}"
+          else
+            line="linux-modules-extra: no such package for $KVER"
+          fi
+          echo "$line"
+          report+="$line"$'\n'
           report=${report//%/%25}
           echo "::notice title=kernel packages and device trees::${report//$'\n'/%0A}"
           exit $missing
