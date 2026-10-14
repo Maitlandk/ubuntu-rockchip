@@ -29,7 +29,6 @@ Vcs-Git: https://salsa.debian.org/debian/u-boot.git
 Package: u-boot-turing-rk1
 Architecture: arm64
 Priority: optional
-Depends: mtd-utils
 Provides: u-boot-turing-rk3588, u-boot
 Replaces: u-boot-turing-rk3588, u-boot
 Conflicts: u-boot-turing-rk3588, u-boot
