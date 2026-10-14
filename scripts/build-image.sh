@@ -75,12 +75,16 @@ umount "${disk}"* 2> /dev/null || true
 umount ${mount_point}/* 2> /dev/null || true
 mkdir -p ${mount_point}
 
-# Setup partition table
+# Setup partition table. U-Boot's distro boot only looks for extlinux.conf
+# in partitions it calls bootable, which for GPT means the legacy BIOS
+# bootable attribute (or, as a side effect of its type, an EFI System
+# Partition); with none it tries partition 1, the CIDATA one.
 dd if=/dev/zero of="${disk}" count=4096 bs=512
 parted --script "${disk}" \
 mklabel gpt \
 mkpart primary fat32 16MiB 20MiB \
-mkpart primary ext4 20MiB 100%
+mkpart primary ext4 20MiB 100% \
+set 2 legacy_boot on
 
 # Create partitions
 {
@@ -89,7 +93,7 @@ mkpart primary ext4 20MiB 100%
     echo "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"
     echo "t"
     echo "2"
-    echo "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+    echo "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
     echo "w"
 } | fdisk "${disk}" &> /dev/null || true
 
