@@ -1,3 +1,4 @@
-GIT=https://github.com/u-boot/u-boot.git    
-COMMIT=cb493752394adec8db1d6f5e9b8fb3c43e13f10a
+GIT=https://github.com/u-boot/u-boot.git
+VERSION=2026.10
+COMMIT=5508406582f6f7120dce0c4b3059819a41788db2 # tag v2026.10
 BRANCH=master

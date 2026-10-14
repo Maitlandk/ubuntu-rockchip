@@ -1,3 +1,12 @@
+u-boot-turing-rk3588 (2026.10-1) resolute; urgency=medium
+
+  * Bump to mainline u-boot v2026.10
+  * Drop the PCIe CLKREQ and eMMC data strobe patches, both in mainline
+  * Drop the Mixtile, Orange Pi 3B and Radxa Zero 3W boards
+  * Stop packaging the SPI flash image: the RK1 has no SPI flash
+
+ -- Maitlandk <maitland@gmail.com>  Wed, 14 Oct 2026 12:00:00 +0000
+
 u-boot-turing-rk3588 (2024.01-4) jammy; urgency=medium
 
   * Update ddr and spl blobs
