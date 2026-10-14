@@ -125,7 +125,7 @@ Not needed for the first hardware test: the RK1s already run mainline
 U-Boot 2024.01 from this repo, and changing the boot loader and the OS at
 once is two variables.
 
-- 📋 **C1. Current mainline U-Boot for the RK1** (M, parallel). Ubuntu's
+- ✅ **C1. Current mainline U-Boot for the RK1** (M, parallel). Ubuntu's
   `u-boot-rockchip` (26.04) has no RK3588 targets, because the DDR init
   is a Rockchip binary, so this repo keeps packaging it. Move
   `u-boot-turing-rk3588` to the current release; drop patches that are
@@ -133,6 +133,24 @@ once is two variables.
   order only if upstream's differs; drop the other boards' targets
   (patches 0004-0006) per A4. Note whether mainline TF-A now replaces the
   `rk3588_bl31` blob. Build-only; nobody flashes it before E is done.
+  *Done 2026-10-14.* `u-boot-turing-rk3588` is now v2026.10 (5508406582f6,
+  fetched by tag: it is not on GitHub's `master` yet), built by the new
+  `u-boot-build.yml` (run 38652164516: `U-Boot SPL 2026.10`, 9.77 MB
+  `u-boot-rockchip.bin`). Dropped: 0002 (Linux 3d50680fcb31, now in
+  `dts/upstream`: mainline muxes the real CLKREQ# function, function 4
+  pull-none, where 0002 set a GPIO pull-down), 0003 (Linux 37f3d6108730,
+  `pcfg_pull_down` in `dts/upstream` rk3588-base-pinctrl.dtsi:372),
+  0004-0006, the SPI image (the defconfig has no
+  `CONFIG_ROCKCHIP_SPI_IMAGE`; the RK1 has no SPI flash) and the unused
+  non-UART9 DDR blob. Kept: 0001, because mainline's default is
+  `mmc1 mmc0 nvme ...` (eMMC before NVMe) and the production node must
+  boot the NVMe; it applies unmodified. TF-A: Ubuntu 26.04's
+  `arm-trusted-firmware` 2.12.1 ships `rk3588/bl31.elf` and TF-A has a
+  `plat/rockchip/rk3588`, so mainline TF-A can replace `rk3588_bl31` in
+  principle; U-Boot's own docs still say to use rkbin's BL31 for RK3588.
+  Not changed here: untested on hardware and the DDR init stays a blob
+  either way (rule 1). Try it in E-phase as a separate test. Still
+  open: build deps (`python3-distutils`) in `control` are stale on 26.04.
 
 ## D. CI
 
@@ -493,3 +511,7 @@ CI run · result · cost if known · next.
   rootfs is Canonical's signed cloud root tarball, kernel added in
   config-image.sh without flash-kernel, desktop flavor gone · cost not
   read · next: B2 must install u-boot-menu.
+- 2026-10-14 · C1 · Sonnet · 2676690..094aeb5 · run 38652164516 ✅ (first run
+  failed: tag not on master; second: shellcheck) · U-Boot v2026.10, patches
+  0002/0003 dropped as upstream, 0001 kept, TF-A noted · cost not read ·
+  next: E1 can use the CI package; BL31 swap is a separate hardware test.

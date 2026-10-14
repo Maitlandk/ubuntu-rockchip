@@ -77,8 +77,8 @@ dependencies without a reason in the commit message.
 - `config/kernel-check/*.txt`: kernel requirement profiles, checked by
   `scripts/check-kernel-config.sh`.
 - `packages/u-boot-*`: Debian packaging of U-Boot.
-  `u-boot-turing-rk3588` = **mainline** U-Boot @ cb493752 (2024.01) + 3 local
-  patches + Rockchip rkbin blobs (DDR init, BL31).
+  `u-boot-turing-rk3588` = **mainline** U-Boot v2026.10 + 1 local patch
+  (boot order) + Rockchip rkbin blobs (DDR init, BL31).
 - `overlay/boot/firmware`: cloud-init seed copied onto the boot partition.
 
 ## Turing RK1 facts
