@@ -73,7 +73,7 @@ dependencies without a reason in the commit message.
 - `config/boards/*.sh`: per board (`UBOOT_PACKAGE`, `UBOOT_RULES_TARGET`,
   `COMPATIBLE_SUITES`, hooks); only `turing-rk1.sh` now.
   `config/suites/*.sh`: per Ubuntu release; only `resolute.sh` (26.04).
-  `config/flavors/`: server, desktop.
+  `config/flavors/`: server.
 - `config/kernel-check/*.txt`: kernel requirement profiles, checked by
   `scripts/check-kernel-config.sh`.
 - `packages/u-boot-*`: Debian packaging of U-Boot.

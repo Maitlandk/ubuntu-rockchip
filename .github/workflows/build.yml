@@ -12,7 +12,6 @@ jobs:
     strategy:
         matrix:
           flavor:
-            - desktop
             - server
           suite:
             - resolute
@@ -67,7 +66,6 @@ jobs:
         board:
           - turing-rk1
         flavor:
-          - desktop
           - server
         suite:
           - resolute
