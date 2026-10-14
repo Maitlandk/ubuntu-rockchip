@@ -97,9 +97,14 @@ Verified on a running RK1 (turingnode2, 2026-10-14) unless marked otherwise.
   change to it.
 - eMMC is 29 GiB: `mmcblk0p1` 512M + `mmcblk0p2` 28.6G (a stale original
   install), plus unused 4 MiB hardware boot partitions.
-- Serial console: `ttyS9,115200` on the vendor kernel. Mainline aliases it
-  differently (`ttyS0` per Armbian's board config and this repo's oracular
-  hook): unverified here.
+- Serial console: `ttyS9,115200` on the vendor kernel. Mainline's
+  `rk3588-turing-rk1.dts` (v7.0) has `stdout-path = "serial9:115200n8"`, so
+  it should be `ttyS9` there too, not the `ttyS0` that Armbian's board
+  config and this repo's oracular hook use. Read from source, not yet seen
+  on the console; Ubuntu's `SERIAL_8250_NR_UARTS` must also allow line 9.
+- Mainline v7.0's RK1 device tree already enables the GPU and the three NPU
+  cores, and the base dtsi leaves the video decoders enabled; what is
+  missing is userspace and display (`docs/ROADMAP.md`, F1-F4).
 - Mainline Linux's `rk3588-turing-rk1.dtsi` already has the PCIe 3.0 x4
   CLKREQ pinctrl that U-Boot patch 0002 adds (checked against torvalds/master).
 - The node runs with `systemd.unified_cgroup_hierarchy=0` (cgroup v1). That is
