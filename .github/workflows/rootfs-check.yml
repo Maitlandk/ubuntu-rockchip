@@ -111,6 +111,12 @@ jobs:
           [ "$(linux-version list | wc -l)" -ge 2 ] || echo "fewer than two kernels installed" >> "$e"
           grep -q 'root=' "$ext" || echo "$ext has no root= argument" >> "$e"
           echo "kernels: $(linux-version list | tr '\n' ' ')" >> "$r"
+          # U-Boot's extlinux support starts a kernel with booti, which wants
+          # an arm64 Image; an EFI zboot vmlinuz (CONFIG_EFI_ZBOOT) is a
+          # compressed PE image that only an EFI loader can run. Report which
+          # one Ubuntu ships, from the config and from the file itself.
+          echo "kernel config: $(grep -E '^(# )?CONFIG_(EFI_ZBOOT|EFI_STUB|KERNEL_(GZIP|ZSTD|UNCOMPRESSED))[= ]' "/boot/config-$kver" | tr '\n' ' ')" >> "$r"
+          echo "vmlinuz-$kver: $(stat -c %s "/boot/vmlinuz-$kver") bytes, first bytes $(od -A n -t x1 -N 4 "/boot/vmlinuz-$kver"), offset 56 $(od -A n -t x1 -j 56 -N 4 "/boot/vmlinuz-$kver")" >> "$r"
           { echo "extlinux.conf:"; cat "$ext"; } >> "$r"
           EOF
           status=0
