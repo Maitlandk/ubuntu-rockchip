@@ -83,7 +83,7 @@ lb config \
     --mirror-binary "http://ports.ubuntu.com" \
     --parent-mirror-binary "http://ports.ubuntu.com" \
     --keyring-packages ubuntu-keyring \
-    --linux-flavours "${KERNEL_FLAVOR}"
+    --linux-flavours generic
 
 if [ "${SUITE}" == "noble" ] || [ "${SUITE}" == "jammy" ]; then
     # Pin rockchip package archives
