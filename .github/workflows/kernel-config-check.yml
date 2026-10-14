@@ -1,0 +1,95 @@
+# Does Ubuntu's own arm64 kernel support our boards?
+#
+# Downloads linux-image-generic for an Ubuntu release from the archive,
+# checks its .config against config/kernel-check/<profile>.txt and checks
+# that the board device trees ship with it. No kernel is built here: the
+# whole point is to use Canonical's.
+
+name: Kernel config check
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Ubuntu release (docker tag)
+        default: "26.04"
+      profiles:
+        description: Profiles in config/kernel-check/, space separated
+        default: "rk3588 turing-rk1"
+      dtbs:
+        description: Device trees that must ship with the kernel, space separated
+        default: "rockchip/rk3588-turing-rk1.dtb"
+  push:
+    paths:
+      - config/kernel-check/**
+      - scripts/check-kernel-config.sh
+      - .github/workflows/kernel-config-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04-arm
+    env:
+      RELEASE: ${{ inputs.release || '26.04' }}
+      PROFILES: ${{ inputs.profiles || 'rk3588 turing-rk1' }}
+      DTBS: ${{ inputs.dtbs || 'rockchip/rk3588-turing-rk1.dtb' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the generic kernel packages
+        run: |
+          mkdir -p pkgs
+          docker run --rm -v "$PWD/pkgs:/out" "ubuntu:$RELEASE" bash -euc '
+            apt-get -qq update
+            img=$(apt-cache depends linux-image-generic |
+                  sed -n "s/.*Depends: \(linux-image-[0-9].*-generic\)$/\1/p" | head -n1)
+            kver=${img#linux-image-}
+            test -n "$kver"
+            cd /out
+            apt-get -qq download "linux-image-$kver" "linux-modules-$kver"
+            apt-get -qq download "linux-modules-extra-$kver" || true
+            echo "$kver" > kver
+          '
+          ls -l pkgs
+
+      - name: Unpack
+        run: |
+          for deb in pkgs/*.deb; do dpkg-deb -x "$deb" root; done
+          kver=$(cat pkgs/kver)
+          echo "KVER=$kver" >> "$GITHUB_ENV"
+          echo "### Ubuntu $RELEASE, kernel \`$kver\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check device trees
+        run: |
+          missing=0
+          for dtb in $DTBS; do
+            found=$(find root -path "*/$dtb" | head -n1)
+            if [ -n "$found" ]; then
+              echo "ok      $dtb  (${found#root/})"
+              echo "- DTB \`$dtb\`: shipped (\`${found#root/}\`)" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "MISSING $dtb"
+              echo "::error title=DTB missing::$dtb is not in the $KVER packages"
+              echo "- DTB \`$dtb\`: **missing**" >> "$GITHUB_STEP_SUMMARY"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Check kernel config
+        if: always()
+        run: |
+          config=$(find root/boot -name "config-$KVER")
+          test -n "$config"
+          set --
+          for p in $PROFILES; do set -- "$@" "config/kernel-check/$p.txt"; done
+          bash scripts/check-kernel-config.sh "$config" "$@"
+
+      - name: Keep the config
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: config-${{ env.KVER }}
+          path: root/boot/config-*

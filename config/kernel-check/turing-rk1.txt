@@ -1,0 +1,7 @@
+# Turing RK1 (RK3588 SoM), as used on the Turing Pi 2 carrier.
+# Board-level requirements on top of rk3588.txt.
+#
+# Format: CONFIG_SYMBOL  builtin|required|optional  # why
+
+CONFIG_SENSORS_PWM_FAN               required  # the DT describes a PWM fan; without the driver nothing controls it
+CONFIG_SATA_AHCI                     optional  # Turing Pi 2 carrier SATA ports (PCIe AHCI controller)

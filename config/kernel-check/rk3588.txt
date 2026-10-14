@@ -1,0 +1,61 @@
+# Kernel requirements for the Rockchip RK3588 SoC itself, independent of
+# the board. Symbol names are mainline Kconfig names.
+#
+# Format: CONFIG_SYMBOL  builtin|required|optional  # why
+# See scripts/check-kernel-config.sh.
+
+# Core SoC support
+CONFIG_ARCH_ROCKCHIP                 builtin   # platform support
+CONFIG_CLK_RK3588                    builtin   # clock controller, needed before anything else probes
+CONFIG_PINCTRL_ROCKCHIP              required  # pin control / GPIO
+CONFIG_ROCKCHIP_PM_DOMAINS           required  # power domains (PCIe, USB, GPU, NPU sit behind these)
+CONFIG_ROCKCHIP_IODOMAIN             required  # I/O voltage domains
+CONFIG_ROCKCHIP_IOMMU                required  # IOMMUs in front of GPU/NPU/VPU/display
+CONFIG_SERIAL_8250_DW                required  # UARTs, including the serial console
+CONFIG_NVMEM_ROCKCHIP_OTP            required  # OTP: CPU binning data used by cpufreq
+
+# Power: RK806 PMIC on SPI, RK8602/RK8603 CPU and NPU rails on I2C
+CONFIG_SPI_ROCKCHIP                  required  # SPI controller the PMIC sits on
+CONFIG_MFD_RK8XX_SPI                 required  # RK806 PMIC
+CONFIG_REGULATOR_RK808               required  # RK806 regulators
+CONFIG_I2C_RK3X                      required  # I2C controllers
+CONFIG_REGULATOR_FAN53555            required  # RK8602/RK8603 CPU big-core and NPU regulators
+
+# CPU frequency and thermal (firmware-assisted via SCMI on RK3588)
+CONFIG_ARM_SCMI_PROTOCOL             required  # SCMI firmware interface
+CONFIG_COMMON_CLK_SCMI               required  # SCMI clocks (CPU clusters)
+CONFIG_ARM_SCMI_CPUFREQ              required  # CPU DVFS; without it the cores sit at boot clocks
+CONFIG_ROCKCHIP_THERMAL              required  # TSADC thermal sensors and trip points
+CONFIG_PWM_ROCKCHIP                  required  # PWM (fan control)
+
+# Storage
+CONFIG_MMC_SDHCI_OF_DWCMSHC          required  # eMMC controller
+CONFIG_MMC_DW_ROCKCHIP               optional  # SD card controller (unused on RK1 + Turing Pi 2)
+CONFIG_PCIE_ROCKCHIP_DW_HOST         required  # PCIe controllers
+CONFIG_PHY_ROCKCHIP_SNPS_PCIE3       required  # PCIe 3.0 PHY (x4 port: NVMe)
+CONFIG_PHY_ROCKCHIP_NANENG_COMBO_PHY required  # PCIe 2.0 / SATA / USB3 combo PHYs
+CONFIG_BLK_DEV_NVME                  required  # NVMe
+
+# Network
+CONFIG_STMMAC_ETH                    required  # GMAC core
+CONFIG_DWMAC_ROCKCHIP                required  # Rockchip GMAC glue
+
+# USB
+CONFIG_PHY_ROCKCHIP_INNO_USB2        required  # USB 2.0 PHYs
+CONFIG_PHY_ROCKCHIP_USBDP            required  # USB3 / DisplayPort combo PHYs
+CONFIG_USB_DWC3                      required  # USB3 controllers
+CONFIG_USB_XHCI_PLATFORM             required  # xHCI on DWC3
+CONFIG_USB_EHCI_HCD_PLATFORM         required  # USB 2.0 host
+CONFIG_USB_OHCI_HCD_PLATFORM         required  # USB 1.1 host
+
+# Misc
+CONFIG_ROCKCHIP_SARADC               optional  # ADC
+CONFIG_HW_RANDOM_ROCKCHIP            optional  # hardware RNG
+
+# Accelerators and multimedia: not needed to boot or run servers
+CONFIG_DRM_PANTHOR                   optional  # Mali-G610 GPU
+CONFIG_DRM_ACCEL_ROCKET              optional  # NPU (mainline driver; not the vendor rknpu ABI)
+CONFIG_VIDEO_ROCKCHIP_VDEC           optional  # H.264/HEVC/VP9 decoder
+CONFIG_VIDEO_HANTRO                  optional  # Hantro codec blocks
+CONFIG_DRM_ROCKCHIP                  optional  # display controller (VOP2)
+CONFIG_ROCKCHIP_DW_HDMI_QP           optional  # HDMI 2.1 TX
