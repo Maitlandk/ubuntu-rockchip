@@ -17,7 +17,6 @@ Required arguments:
 Optional arguments:
   -h,  --help            show this help message and exit
   -c,  --clean           clean the build directory
-  -ko, --kernel-only     only compile the kernel
   -uo, --uboot-only      only compile uboot
   -ro, --rootfs-only     only build rootfs
   -l,  --launchpad       use kernel and uboot from launchpad repo
@@ -61,10 +60,6 @@ while [ "$#" -gt 0 ]; do
         -f|--flavor)
             export FLAVOR="${2}"
             shift 2
-            ;;
-        -ko|--kernel-only)
-            export KERNEL_ONLY=Y
-            shift
             ;;
         -uo|--uboot-only)
             export UBOOT_ONLY=Y
@@ -169,15 +164,6 @@ fi
 
 mkdir -p build/logs && exec > >(tee "build/logs/build-$(date +"%Y%m%d%H%M%S").log") 2>&1
 
-if [ "${KERNEL_ONLY}" == "Y" ]; then
-    if [ -z "${SUITE}" ]; then
-        usage
-        exit 1
-    fi
-    ./scripts/build-kernel.sh
-    exit 0
-fi
-
 if [ "${ROOTFS_ONLY}" == "Y" ]; then
     if [ -z "${SUITE}" ] || [ -z "${FLAVOR}" ]; then
         usage
@@ -200,13 +186,6 @@ fi
 if [ -z "${BOARD}" ] || [ -z "${SUITE}" ] || [ -z "${FLAVOR}" ]; then
     usage
     exit 1
-fi
-
-# Build the Linux kernel if not found
-if [[ ${LAUNCHPAD} != "Y" ]]; then
-    if [[ ! -e "$(find build/linux-image-*.deb | sort | tail -n1)" || ! -e "$(find build/linux-headers-*.deb | sort | tail -n1)" ]]; then
-        ./scripts/build-kernel.sh
-    fi
 fi
 
 # Build U-Boot if not found
