@@ -165,13 +165,24 @@ sync
 umount "${disk}${partition_char}1"
 umount "${disk}${partition_char}2" 2> /dev/null || true
 
+# The two partitions on their own, for writing into partitions that
+# already exist (the RK1's eMMC, where the first 16 MiB hold the boot
+# loader and must stay untouched): the CIDATA partition and the root
+# filesystem, which holds /boot. The disk image has them in place.
+cidata_img="${img%.img}.cidata.img"
+root_img="${img%.img}.root.img"
+dd if="${disk}${partition_char}1" of="${cidata_img}" bs=1M conv=sparse status=none
+dd if="${disk}${partition_char}2" of="${root_img}" bs=1M conv=sparse status=none
+
 # Remove loop device
 losetup -d "${loop}"
 
 # Exit trap is no longer needed
 trap '' EXIT
 
-echo -e "\nCompressing $(basename "${img}.xz")\n"
-xz -6 --force --keep --quiet --threads=0 "${img}"
-rm -f "${img}"
-cd ../images && sha256sum "$(basename "${img}.xz")" > "$(basename "${img}.xz.sha256")"
+for file in "${img}" "${cidata_img}" "${root_img}"; do
+    echo -e "\nCompressing $(basename "${file}.xz")\n"
+    xz -6 --force --keep --quiet --threads=0 "${file}"
+    rm -f "${file}"
+    (cd ../images && sha256sum "$(basename "${file}.xz")" > "$(basename "${file}.xz.sha256")")
+done
