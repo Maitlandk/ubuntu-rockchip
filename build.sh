@@ -19,7 +19,6 @@ Optional arguments:
   -c,  --clean           clean the build directory
   -uo, --uboot-only      only compile uboot
   -ro, --rootfs-only     only build rootfs
-  -l,  --launchpad       use kernel and uboot from launchpad repo
   -v,  --verbose         increase the verbosity of the bash script
 HEREDOC
 }
@@ -67,10 +66,6 @@ while [ "$#" -gt 0 ]; do
             ;;
         -ro|--rootfs-only)
             export ROOTFS_ONLY=Y
-            shift
-            ;;
-        -l|--launchpad)
-            export LAUNCHPAD=Y
             shift
             ;;
         -c|--clean)
@@ -189,10 +184,8 @@ if [ -z "${BOARD}" ] || [ -z "${SUITE}" ] || [ -z "${FLAVOR}" ]; then
 fi
 
 # Build U-Boot if not found
-if [[ ${LAUNCHPAD} != "Y" ]]; then
-    if [[ ! -e "$(find build/u-boot-"${BOARD}"_*.deb | sort | tail -n1)" ]]; then
-        ./scripts/build-u-boot.sh
-    fi
+if [[ ! -e "$(find build/u-boot-"${BOARD}"_*.deb | sort | tail -n1)" ]]; then
+    ./scripts/build-u-boot.sh
 fi
 
 # Create the root filesystem

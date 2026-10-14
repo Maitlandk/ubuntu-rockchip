@@ -35,12 +35,10 @@ fi
 # shellcheck source=/dev/null
 source "../config/flavors/${FLAVOR}.sh"
 
-if [[ ${LAUNCHPAD} != "Y" ]]; then
-    uboot_package="$(basename "$(find u-boot-"${BOARD}"_*.deb | sort | tail -n1)")"
-    if [ ! -e "$uboot_package" ]; then
-        echo 'Error: could not find the u-boot package'
-        exit 1
-    fi
+uboot_package="$(basename "$(find u-boot-"${BOARD}"_*.deb | sort | tail -n1)")"
+if [ ! -e "$uboot_package" ]; then
+    echo 'Error: could not find the u-boot package'
+    exit 1
 fi
 
 setup_mountpoint() {
@@ -110,14 +108,10 @@ if [[ $(type -t config_image_hook__"${BOARD}") == function ]]; then
     config_image_hook__"${BOARD}" "${chroot_dir}" "${overlay_dir}" "${SUITE}"
 fi 
 
-# Download and install U-Boot
-if [[ ${LAUNCHPAD} == "Y" ]]; then
-    chroot ${chroot_dir} apt-get -y install "u-boot-${BOARD}"
-else
-    cp "${uboot_package}" ${chroot_dir}/tmp/
-    chroot ${chroot_dir} dpkg -i "/tmp/${uboot_package}"
-    chroot ${chroot_dir} apt-mark hold "$(echo "${uboot_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
-fi
+# Install U-Boot
+cp "${uboot_package}" ${chroot_dir}/tmp/
+chroot ${chroot_dir} dpkg -i "/tmp/${uboot_package}"
+chroot ${chroot_dir} apt-mark hold "$(echo "${uboot_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
 
 # Update the initramfs
 chroot ${chroot_dir} update-initramfs -u
