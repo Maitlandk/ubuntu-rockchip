@@ -9,6 +9,7 @@ name: U-Boot build
 
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     paths:
       - packages/u-boot-turing-rk3588/**
@@ -52,6 +53,14 @@ jobs:
             scripts/build-u-boot.sh
             cp build/*.deb /src/out/
           '
+
+      # build.yml puts this package into the image.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: u-boot-turing-rk1
+          path: out/*.deb
+          compression-level: 0
+          if-no-files-found: error
 
       # Annotations, because the check-runs API serves them without a
       # GitHub sign-in (see "Reading CI results" in CLAUDE.md).
