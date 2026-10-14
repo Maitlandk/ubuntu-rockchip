@@ -77,6 +77,28 @@ Verified on a running RK1 (turingnode2, 2026-10-14) unless marked otherwise.
 - The node runs with `systemd.unified_cgroup_hierarchy=0` (cgroup v1). That is
   the owner's cluster config, not this repo's; new images must not carry it.
 
+## Reading CI results
+
+From a cloud session, job logs and artifacts are out of reach: the API
+redirects them to blob storage the session's network does not allow, and
+the web UI wants a sign-in for logs. Annotations are served by the API
+directly, so the workflows publish their results as annotations
+(`::notice` for the full report, `::error` per failure). To read the
+newest run of a workflow:
+
+```sh
+repo=Maitlandk/ubuntu-rockchip
+run=$(gh api "repos/$repo/actions/workflows/kernel-config-check.yml/runs?per_page=1" \
+      --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion) \(.head_sha[:7])"')
+echo "$run"
+job=$(gh api "repos/$repo/actions/runs/${run%% *}/jobs" --jq '.jobs[0].id')
+gh api "repos/$repo/check-runs/$job/annotations" \
+   --jq '.[] | "[\(.annotation_level)] \(.title)\n\(.message)\n"'
+```
+
+New workflows follow the same rule: anything a session needs to read comes
+out as an annotation.
+
 ## Testing on hardware
 
 The owner does all hardware work; we provide images, exact commands and

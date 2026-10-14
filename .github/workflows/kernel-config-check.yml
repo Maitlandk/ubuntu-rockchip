@@ -51,6 +51,9 @@ jobs:
             apt-get -qq download "linux-image-$kver" "linux-modules-$kver"
             apt-get -qq download "linux-modules-extra-$kver" || true
             echo "$kver" > kver
+            # Whether a stock install pulls in modules-extra decides whether
+            # an =m driver that lives there is actually on the system.
+            apt-cache depends linux-image-generic > depends
           '
           ls -l pkgs
 
@@ -61,21 +64,31 @@ jobs:
           echo "KVER=$kver" >> "$GITHUB_ENV"
           echo "### Ubuntu $RELEASE, kernel \`$kver\`" >> "$GITHUB_STEP_SUMMARY"
 
+      # Results go out as annotations as well as the log, because the
+      # check-runs API serves annotations without a GitHub sign-in and
+      # job logs it does not. See "Reading CI results" in CLAUDE.md.
       - name: Check device trees
         run: |
           missing=0
+          report="Ubuntu $RELEASE, kernel $KVER"$'\n'"$(cat pkgs/depends)"$'\n'
           for dtb in $DTBS; do
             found=$(find root -path "*/$dtb" | head -n1)
             if [ -n "$found" ]; then
-              echo "ok      $dtb  (${found#root/})"
-              echo "- DTB \`$dtb\`: shipped (\`${found#root/}\`)" >> "$GITHUB_STEP_SUMMARY"
+              pkg=$(for d in pkgs/*.deb; do
+                      dpkg-deb -c "$d" | grep -q "/$dtb\$" && basename "$d"; done | head -n1)
+              line="ok      $dtb  ${found#root/}  ($pkg)"
+              echo "- DTB \`$dtb\`: shipped (\`${found#root/}\`, $pkg)" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "MISSING $dtb"
+              line="MISSING $dtb"
               echo "::error title=DTB missing::$dtb is not in the $KVER packages"
               echo "- DTB \`$dtb\`: **missing**" >> "$GITHUB_STEP_SUMMARY"
               missing=1
             fi
+            echo "$line"
+            report+="$line"$'\n'
           done
+          report=${report//%/%25}
+          echo "::notice title=kernel packages and device trees::${report//$'\n'/%0A}"
           exit $missing
 
       - name: Check kernel config
