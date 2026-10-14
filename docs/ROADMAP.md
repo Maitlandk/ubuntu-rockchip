@@ -166,7 +166,7 @@ scripts until it has evidence.
   and the archive userspace that drives it (GStreamer `v4l2codecs`, FFmpeg
   V4L2 request API). Hardware check: `v4l2-ctl --list-devices`, one
   hardware-decoded H.264 and HEVC file.
-- ✅ **F3. NPU: Rocket + Mesa Teflon** (M; researched 2026-10-14, hardware check in E1; one question open for the owner). The mainline NPU
+- ✅ **F3. NPU: Rocket + Mesa Teflon** (M; researched 2026-10-14, hardware check in E1; owner answered the cluster-NPU question). The mainline NPU
   driver is used through Mesa's Teflon TensorFlow Lite delegate, not
   Rockchip's RKNN runtime: RKNN models do not run on it. Establish what
   26.04's Mesa ships for Teflon on Rocket and which model formats work;
@@ -314,12 +314,12 @@ runtime for Python is not.**
   process. Compatibility with the archive's 2.14.1 or pip's LiteRT 2.3.0
   is **unverified**: E1 decides.
 
-**Open question for the owner (F3):** does any cluster workload use the
-NPU today (RKNN toolkit, an `rknpu` device passed into pods, a detector
-such as Frigate)? The cluster agent cannot be reached from this session,
-so this is unanswered. If yes, that workload's models need converting to
-quantised TFLite and re-validating before node 2 can leave the vendor
-kernel; if no, F3 stays a one-model smoke test.
+**Owner's answer (F3, 2026-10-14):** no cluster workload uses the NPU
+today; the owner plans to use it later for model testing. So nothing
+blocks node 2 on the NPU, and models for that testing should be prepared
+as fully integer-quantised TFLite with convolution/add-heavy graphs (see
+above for what Rocket accelerates). A pip-installed TFLite runtime
+(`ai-edge-litert`) is acceptable for the E1 smoke test.
 
 **Not examined:** ONNX Runtime (`libonnxruntime1.23` 1.23.2 is in the
 archive, but whether any execution provider can drive Rocket was not
@@ -487,7 +487,7 @@ CI run · result · cost if known · next.
   docs commit on main · no CI · GPU/video/NPU userspace is in the 26.04
   archive (Mesa 26.0.8 PanVK, GStreamer v4l2codecs, mesa-teflon-delegate);
   gaps: no OpenCL, no VP9 or encode, no FFmpeg hwaccel, no Python TFLite
-  in the archive; F3 cluster-NPU question open for the owner · cost not
+  in the archive; owner: no NPU use in the cluster today, model testing planned · cost not
   read · next: E1 commands are in place.
 - 2026-10-14 · B1 · Opus · e83b970..650e0a9 · run 38651860639 ✅ ·
   rootfs is Canonical's signed cloud root tarball, kernel added in
