@@ -21,6 +21,29 @@ checking that.
 **Work is planned in `docs/ROADMAP.md`**, one session per task. Read the
 task you were given there before reading code.
 
+## Sessions
+
+`docs/ROADMAP.md` is the plan and the record; it lives in git so every
+session reads and updates the same copy.
+
+1. **Start:** `git pull`. Read this file and your task(s) in the roadmap.
+   Read only the code the task names until you need more.
+2. **Work:** small commits (rule 4), push to `main` as you go. CI builds and
+   checks; read results as annotations (below). Do not build images or
+   kernels in the session.
+3. **Stop and report**, without pushing through, when: the task is clearly
+   bigger than its size; CI fails twice on the same problem; the task needs
+   an owner decision or hardware; or a fact in this file or the roadmap
+   turns out wrong (fix the fact, then stop).
+4. **Finish:** update the task's status line, add one line to the session
+   log at the end of the roadmap, and fix anything here that your work
+   proved or disproved. Commit that as `docs: roadmap: ...` and push. If the
+   push races another session, `git pull --rebase` and resolve; the
+   roadmap is the only file sessions commonly share.
+
+Scope (owner decision, 2026-10-14): the Turing RK1 (RK3588) only, with its
+GPU, NPU, video decode and display in scope.
+
 ## Rules
 
 1. **Don't break what runs.** The only test hardware is a production k3s

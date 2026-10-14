@@ -173,13 +173,46 @@ read the logs.
 
 ## Running a task in a cloud session
 
-Start the session with:
+This file is the plan and the record. It lives in git so every session,
+cloud or local, reads the same version and writes back to it. The rules
+are in CLAUDE.md under "Sessions"; in short: pull, read your task, do it
+in small commits, update the task's status line and add one line to the
+session log below, push.
 
-> Read CLAUDE.md and docs/ROADMAP.md. Do task **A1**. One logical change
-> per commit, push to main, update A1's status here, and report what CI
-> says (via annotations).
+### Kickoff plan (budget: the owner's $100 of usage credits)
 
-What keeps a session cheap: start from the task, not the tree; let CI
-build and read its annotations, never build an image in the session; stop
-and report when a task turns out bigger than its size, instead of
-pushing through.
+Wave 1, run in parallel (no shared files):
+
+| Session | Tasks | Model | Why that model |
+|---|---|---|---|
+| 1 | A1, A2, A3, A4 in order | Sonnet | mechanical deletions with clear done-criteria |
+| 2 | B1 | Opus | a design choice with lasting consequences |
+| 3 | C1 | Sonnet | a version bump with a build to check |
+| 4 | F1, F2, F3 (research only) | Sonnet | reading package lists and upstream docs |
+
+Wave 2, after wave 1 is in: B2, B3, D1 (one Sonnet session, in order).
+Wave 3: D2 and E1 (Sonnet), F4 (Opus: an upstream DT patch is judged
+harshly and should be right the first time).
+
+Prompt for a session (replace the task IDs):
+
+> Read CLAUDE.md, then do roadmap task(s) **A1-A4** from docs/ROADMAP.md,
+> following "Sessions" in CLAUDE.md. Stop and report if a stop rule hits.
+
+Budget rules:
+
+- Calibrate after the first wave-1 session finishes: note its cost from
+  Settings > Usage in its session-log line. Do not start wave 2 until the
+  wave-1 total is known and the remainder covers it.
+- Never build an image or kernel inside a session; CI builds, the session
+  reads annotations.
+- Sonnet unless the table says otherwise.
+
+## Session log
+
+One line per session, newest last: date · tasks · model · commits ·
+CI run · result · cost if known · next.
+
+- 2026-10-14 · setup (this file, CLAUDE.md, kernel check, CI cleanup) ·
+  Opus · 9ee5c91..HEAD · run 38635844232 ✅ · Q1 answered yes, scope set
+  to RK1, F added · plan-included usage · next: wave 1.
