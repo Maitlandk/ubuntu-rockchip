@@ -103,6 +103,14 @@ setup_mountpoint $chroot_dir
 chroot $chroot_dir apt-get update
 chroot $chroot_dir apt-get -y upgrade
 
+# u-boot-menu writes /boot/extlinux/extlinux.conf, which U-Boot's distro
+# boot reads, and rewrites it from /etc/kernel/postinst.d and postrm.d
+# whenever a kernel is installed or removed. It goes in first so that the
+# kernel install below already produces the entry. It finds the device
+# tree directory (/lib/firmware/<kver>/device-tree/, where Ubuntu's kernel
+# ships it) and the root device (/etc/fstab) by itself.
+chroot $chroot_dir apt-get -y install --no-install-recommends u-boot-menu
+
 # Ubuntu's generic kernel. Without its recommends: the boot loader one,
 # flash-kernel | grub-efi-arm64, is wrong for a board that U-Boot boots
 # from extlinux.conf, and flash-kernel fails every kernel install on a
