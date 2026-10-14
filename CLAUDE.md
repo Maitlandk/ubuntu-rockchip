@@ -91,9 +91,11 @@ repo=Maitlandk/ubuntu-rockchip
 run=$(gh api "repos/$repo/actions/workflows/kernel-config-check.yml/runs?per_page=1" \
       --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion) \(.head_sha[:7])"')
 echo "$run"
-job=$(gh api "repos/$repo/actions/runs/${run%% *}/jobs" --jq '.jobs[0].id')
-gh api "repos/$repo/check-runs/$job/annotations" \
-   --jq '.[] | "[\(.annotation_level)] \(.title)\n\(.message)\n"'
+for job in $(gh api "repos/$repo/actions/runs/${run%% *}/jobs" --jq '.jobs[].id'); do
+  gh api "repos/$repo/check-runs/$job" --jq '"== \(.name): \(.conclusion)"'
+  gh api "repos/$repo/check-runs/$job/annotations" \
+     --jq '.[] | "[\(.annotation_level)] \(.path):\(.start_line) \(.title)\n\(.message)\n"'
+done
 ```
 
 New workflows follow the same rule: anything a session needs to read comes

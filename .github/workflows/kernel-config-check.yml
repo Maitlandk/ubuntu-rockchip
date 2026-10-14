@@ -29,6 +29,17 @@ permissions:
   contents: read
 
 jobs:
+  # Separate job: a lint finding must not hide the kernel answer.
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: |
+          shellcheck -f gcc scripts/check-kernel-config.sh |
+            sed -E 's/^([^:]+):([0-9]+):([0-9]+): (.*)$/::error file=\1,line=\2,col=\3::\4/'
+          exit "${PIPESTATUS[0]}"
+
   check:
     runs-on: ubuntu-24.04-arm
     env:
@@ -37,9 +48,6 @@ jobs:
       DTBS: ${{ inputs.dtbs || 'rockchip/rk3588-turing-rk1.dtb' }}
     steps:
       - uses: actions/checkout@v7
-
-      - name: Lint
-        run: shellcheck scripts/check-kernel-config.sh
 
       - name: Download the generic kernel packages
         run: |
@@ -61,6 +69,7 @@ jobs:
           ls -l pkgs
 
       - name: Unpack
+        id: unpack
         run: |
           for deb in pkgs/*.deb; do dpkg-deb -x "$deb" root; done
           kver=$(cat pkgs/kver)
@@ -95,7 +104,7 @@ jobs:
           exit $missing
 
       - name: Check kernel config
-        if: always()
+        if: ${{ !cancelled() && steps.unpack.outcome == 'success' }}
         run: |
           config=$(find root/boot -name "config-$KVER")
           test -n "$config"
@@ -104,7 +113,7 @@ jobs:
           bash scripts/check-kernel-config.sh "$config" "$@"
 
       - name: Keep the config
-        if: always()
+        if: ${{ !cancelled() && steps.unpack.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: config-${{ env.KVER }}
