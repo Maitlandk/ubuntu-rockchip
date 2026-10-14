@@ -1,0 +1,102 @@
+# Is the root filesystem stock Ubuntu?
+#
+# Runs scripts/build-rootfs.sh (Canonical's signed arm64 cloud root
+# tarball), then installs the generic kernel in it as
+# scripts/config-image.sh does, inside a container on a native arm64
+# runner, and reports what is installed and where it came from. No image
+# is built here; D1 does that.
+
+name: Rootfs check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/build-rootfs.sh
+      - scripts/config-image.sh
+      - config/suites/**
+      - .github/workflows/rootfs-check.yml
+
+permissions:
+  contents: read
+
+env:
+  SUITE: resolute
+  FLAVOR: server
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: |
+          shellcheck -f gcc scripts/build-rootfs.sh |
+            sed -E 's/^([^:]+):([0-9]+):([0-9]+): (.*)$/::error file=\1,line=\2,col=\3::\4/'
+          exit "${PIPESTATUS[0]}"
+
+  check:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download and verify the root filesystem
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install ubuntu-cloudimage-keyring
+          scripts/build-rootfs.sh
+          ls -l build
+
+      # Results go out as annotations as well as the log, because the
+      # check-runs API serves annotations without a GitHub sign-in and
+      # job logs it does not. See "Reading CI results" in CLAUDE.md.
+      - name: Install the kernel and report
+        run: |
+          . "config/suites/$SUITE.sh"
+          xz -dc "build/ubuntu-$RELASE_VERSION-preinstalled-$FLAVOR-arm64.rootfs.tar.xz" |
+            docker import - rootfs
+          cat > check.sh << 'EOF'
+          set -eu
+          export DEBIAN_FRONTEND=noninteractive
+          r=/w/report; e=/w/errors; : > "$r"; : > "$e"
+          echo "serial: $(cat /etc/cloud/build.info 2>/dev/null | tr '\n' ' ')" >> "$r"
+          for p in ubuntu-server cloud-init dracut; do
+            echo "$p: $(dpkg-query -W -f '${Version}' "$p" 2>/dev/null || echo MISSING)" >> "$r"
+          done
+          pre=$(dpkg-query -W -f '${Package}\n' 'linux-image-*' 'grub-*' 'flash-kernel' 2>/dev/null || true)
+          [ -z "$pre" ] || echo "kernel or boot loader already in the tarball: $pre" >> "$e"
+          # As scripts/config-image.sh does it.
+          apt-get -qq update
+          apt-get -y -qq upgrade
+          if ! apt-get -y install --no-install-recommends linux-generic; then
+            echo "apt-get install linux-generic failed, see the job log" >> "$e"
+            exit 0
+          fi
+          kver=$(dpkg-query -W -f '${Depends}' linux-image-generic | sed -n 's/^linux-image-\([^ ,]*\).*/\1/p')
+          echo "kernel: $kver" >> "$r"
+          dtb=/usr/lib/firmware/$kver/device-tree/rockchip/rk3588-turing-rk1.dtb
+          if [ -f "$dtb" ]; then echo "dtb: $dtb" >> "$r"; else echo "no $dtb" >> "$e"; fi
+          if [ -f "/boot/initrd.img-$kver" ]; then echo "initrd: /boot/initrd.img-$kver" >> "$r"
+          else echo "no /boot/initrd.img-$kver" >> "$e"; fi
+          bl=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' 'grub-*' flash-kernel shim-signed 2>/dev/null | awk '/^ii/ {print $2}')
+          [ -z "$bl" ] || echo "boot loader packages installed: $bl" >> "$e"
+          u=$(command -v update-initramfs || true)
+          echo "update-initramfs: ${u:-none}${u:+ ($(dpkg -S "$u" 2>/dev/null | cut -d: -f1))}" >> "$r"
+          echo "apt sources: $(grep -rhoE '^(URIs: |deb )[^ ]+( [^ ]+)?' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | sort -u | tr '\n' ' ')" >> "$r"
+          echo "packages: $(dpkg-query -W | wc -l)" >> "$r"
+          # [installed,local]: no configured archive offers that version.
+          local_pkgs=$(apt list --installed 2>/dev/null | grep ',local\]' || true)
+          [ -z "$local_pkgs" ] || echo "packages not from the archive: $local_pkgs" >> "$e"
+          EOF
+          status=0
+          docker run --rm -v "$PWD:/w" rootfs bash /w/check.sh || status=1
+          report=$(cat report)
+          echo "$report"
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            echo "::error title=rootfs::$line"
+            status=1
+          done < errors
+          report=${report//%/%25}
+          echo "::notice title=rootfs ($SUITE $FLAVOR)::${report//$'\n'/%0A}"
+          exit $status
