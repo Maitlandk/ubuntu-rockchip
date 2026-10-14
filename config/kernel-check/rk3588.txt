@@ -52,10 +52,11 @@ CONFIG_USB_OHCI_HCD_PLATFORM         required  # USB 1.1 host
 CONFIG_ROCKCHIP_SARADC               optional  # ADC
 CONFIG_HW_RANDOM_ROCKCHIP            optional  # hardware RNG
 
-# Accelerators and multimedia: not needed to boot or run servers
-CONFIG_DRM_PANTHOR                   optional  # Mali-G610 GPU
-CONFIG_DRM_ACCEL_ROCKET              optional  # NPU (mainline driver; not the vendor rknpu ABI)
-CONFIG_VIDEO_ROCKCHIP_VDEC           optional  # H.264/HEVC/VP9 decoder
-CONFIG_VIDEO_HANTRO                  optional  # Hantro codec blocks
-CONFIG_DRM_ROCKCHIP                  optional  # display controller (VOP2)
-CONFIG_ROCKCHIP_DW_HDMI_QP           optional  # HDMI 2.1 TX
+# Accelerators and multimedia: not needed to boot, but in scope for this
+# project (GPU, NPU, video decode, display), so a kernel without them fails.
+CONFIG_DRM_PANTHOR                   required  # Mali-G610 GPU
+CONFIG_DRM_ACCEL_ROCKET              required  # NPU (mainline driver; not the vendor rknpu ABI)
+CONFIG_VIDEO_ROCKCHIP_VDEC           required  # H.264/HEVC/VP9 decoder
+CONFIG_VIDEO_HANTRO                  required  # Hantro codec blocks
+CONFIG_DRM_ROCKCHIP                  required  # display controller (VOP2)
+CONFIG_ROCKCHIP_DW_HDMI_QP           required  # HDMI 2.1 TX
