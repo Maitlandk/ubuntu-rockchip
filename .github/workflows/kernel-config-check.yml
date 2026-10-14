@@ -36,7 +36,7 @@ jobs:
       PROFILES: ${{ inputs.profiles || 'rk3588 turing-rk1' }}
       DTBS: ${{ inputs.dtbs || 'rockchip/rk3588-turing-rk1.dtb' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download the generic kernel packages
         run: |
@@ -89,7 +89,7 @@ jobs:
 
       - name: Keep the config
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: config-${{ env.KVER }}
           path: root/boot/config-*
