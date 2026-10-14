@@ -68,6 +68,8 @@ jobs:
           # As scripts/config-image.sh does it.
           apt-get -qq update
           apt-get -y -qq upgrade
+          apt-get -y -qq install --no-install-recommends u-boot-menu
+          echo "u-boot-menu: $(dpkg-query -W -f '${Version}' u-boot-menu)" >> "$r"
           if ! apt-get -y install --no-install-recommends linux-generic; then
             echo "apt-get install linux-generic failed, see the job log" >> "$e"
             exit 0
@@ -87,6 +89,29 @@ jobs:
           # [installed,local]: no configured archive offers that version.
           local_pkgs=$(apt list --installed 2>/dev/null | grep ',local\]' || true)
           [ -z "$local_pkgs" ] || echo "packages not from the archive: $local_pkgs" >> "$e"
+          # B2: the kernel install above wrote extlinux.conf (u-boot-menu's
+          # postinst hook); installing a second kernel must add an entry
+          # for it and keep the first. The oldest other ABI in the archive
+          # stands in for "the next kernel update".
+          ext=/boot/extlinux/extlinux.conf
+          other=$(apt-cache search --names-only '^linux-image-[0-9.]+-[0-9]+-generic$' |
+                    sed 's/^linux-image-\(.*\)-generic .*/\1/' | grep -vxF "${kver%-generic}" |
+                    sort -V | head -n1)
+          if [ -z "$other" ]; then
+            echo "no second linux-image-*-generic in the archive to install" >> "$e"
+          elif ! apt-get -y -qq install --no-install-recommends "linux-image-$other-generic"; then
+            echo "apt-get install linux-image-$other-generic failed, see the job log" >> "$e"
+          fi
+          for v in $(linux-version list); do
+            grep -q "^[[:space:]]linux /boot/vmlinuz-$v\$" "$ext" || echo "$ext has no entry for kernel $v" >> "$e"
+            grep -q "^[[:space:]]initrd /boot/initrd.img-$v\$" "$ext" || echo "$ext has no initrd for kernel $v" >> "$e"
+            d=/lib/firmware/$v/device-tree
+            grep -q "^[[:space:]]fdtdir $d/\$" "$ext" || echo "$ext has no fdtdir $d/ for kernel $v" >> "$e"
+          done
+          [ "$(linux-version list | wc -l)" -ge 2 ] || echo "fewer than two kernels installed" >> "$e"
+          grep -q 'root=' "$ext" || echo "$ext has no root= argument" >> "$e"
+          echo "kernels: $(linux-version list | tr '\n' ' ')" >> "$r"
+          { echo "extlinux.conf:"; cat "$ext"; } >> "$r"
           EOF
           status=0
           docker run --rm -v "$PWD:/w" rootfs bash /w/check.sh || status=1
