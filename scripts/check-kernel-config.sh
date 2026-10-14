@@ -112,7 +112,7 @@ for profile in "$@"; do
 		line=$(printf '%-7s %-36s %-6s %s' "$status" "$sym" "$val" "$level")
 		echo "$line"
 		report+="$line"$'\n'
-		printf '| %s | `%s` | %s | %s | %s | %s |\n' \
+		printf "| %s | \`%s\` | %s | %s | %s | %s |\n" \
 			"$name" "$sym" "$level" "$val" "$status" "$why" >> "$summary"
 	done < "$profile"
 done
