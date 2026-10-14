@@ -12,7 +12,6 @@ Ubuntu Rockchip is a community project porting Ubuntu to Rockchip hardware with 
 * Package management via apt using the official Ubuntu repositories
 * Receive all updates and changes through apt
 * Desktop first-run wizard for user setup and configuration
-* 3D hardware acceleration support via panfork
 * Fully working GNOME desktop using wayland
 * Chromium browser with smooth 4k youtube video playback
 * MPV video player capable of smooth 4k video playback
