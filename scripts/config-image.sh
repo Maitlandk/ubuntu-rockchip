@@ -102,7 +102,13 @@ setup_mountpoint $chroot_dir
 # Update packages
 chroot $chroot_dir apt-get update
 chroot $chroot_dir apt-get -y upgrade
-    
+
+# Ubuntu's generic kernel. Without its recommends: the boot loader one,
+# flash-kernel | grub-efi-arm64, is wrong for a board that U-Boot boots
+# from extlinux.conf, and flash-kernel fails every kernel install on a
+# machine missing from its database, as the RK1 is.
+chroot $chroot_dir apt-get -y install --no-install-recommends linux-generic
+
 # Run config hook to handle board specific changes
 if [[ $(type -t config_image_hook__"${BOARD}") == function ]]; then
     config_image_hook__"${BOARD}" "${chroot_dir}" "${overlay_dir}" "${SUITE}"
