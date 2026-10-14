@@ -31,7 +31,7 @@ Status: ✅ done · 🔜 next · ⏳ waiting on something · 📋 queued · 👤
 Sequential: these touch the same scripts. Each is a series of small
 commits; nothing new is added here.
 
-- 🔜 **A1. Remove the kernel build** (M). `scripts/build-kernel.sh`;
+- ✅ **A1. Remove the kernel build** (M). `scripts/build-kernel.sh`;
   `--kernel-only` and `--launchpad` in `build.sh`; the linux-image/headers/
   modules/buildinfo/rockchip-headers lookup, purge, `dpkg -i` and
   `apt-mark hold` in `scripts/config-image.sh`; `KERNEL_REPO`,
@@ -39,16 +39,21 @@ commits; nothing new is added here.
   `.github/workflows/build.yml`. Done when no file references
   `linux-rockchip` or builds a kernel, and `bash -n` passes on every
   touched script.
-- 📋 **A2. Remove the PPAs and vendor userspace** (S). `EXTRA_PPAS`;
+- ✅ **A2. Remove the PPAs and vendor userspace** (S). `EXTRA_PPAS`;
   the `jjriek` pin files in `scripts/build-rootfs.sh`; panfork,
   libmali, camera-engine-rkaiq installs in `config/boards/*.sh` hooks;
   `ubuntu-server-rockchip` / `ubuntu-desktop-rockchip` meta-packages.
   Done when `grep -ri 'jjriek\|panfork\|libmali\|rkaiq'` finds nothing.
-- 📋 **A3. One suite: resolute** (S). Replace `config/suites/*` with
+  *Done 2026-10-14*, except that the grep still hits Joshua Riek's
+  `jjriek@verizon.net` in `packages/u-boot-turing-rk3588` (Maintainer line,
+  changelog, patch authorship), which is attribution and stays. The
+  `ubuntu-{server,desktop}-rockchip` metas became the archive's
+  `ubuntu-server`/`ubuntu-desktop`; B1 owns the real package set.
+- ✅ **A3. One suite: resolute** (S). Replace `config/suites/*` with
   `resolute.sh` (26.04). jammy/oracular/plucky are out of support or
   vendor-kernel-only; noble's 6.8 generic kernel predates most mainline
   RK3588 support. Fix `COMPATIBLE_SUITES` in board files to match.
-- 📋 **A4. RK1 only** (M). Owner decision (2026-10-14): the Turing RK1
+- ✅ **A4. RK1 only** (M). Owner decision (2026-10-14): the Turing RK1
   (RK3588) is the only board for now; others come back one at a time, each
   with a passing kernel-check profile, a mainline U-Boot target and a
   tester. Remove the other 30 `config/boards/*.sh`; the
@@ -58,7 +63,11 @@ commits; nothing new is added here.
   blobs); and the `overlay/usr` Bluetooth/Wi-Fi/audio helpers, none of
   which the RK1 uses (check each against `turing-rk1.sh` first). Done when
   `config/boards/` holds only `turing-rk1.sh` and nothing references a
-  removed board.
+  removed board. *Done 2026-10-14.* The RK1's `config_image_hook` was
+  removed in A3 (every branch was keyed on a deleted suite); B2 must set
+  the serial console and `/etc/kernel/cmdline`. `overlay/usr` is gone; the
+  unused non-UART9 `rk3588_ddr_lp4_2112MHz_lp5_2400MHz_v1.16.bin` blob in
+  `u-boot-turing-rk3588/debian/rkbin` is left for C1 to decide.
 
 ## B. Root filesystem for 26.04 without Joshua's forks
 
@@ -216,3 +225,9 @@ CI run · result · cost if known · next.
 - 2026-10-14 · setup (this file, CLAUDE.md, kernel check, CI cleanup) ·
   Opus · 9ee5c91..HEAD · run 38635844232 ✅ · Q1 answered yes, scope set
   to RK1, F added · plan-included usage · next: wave 1.
+- 2026-10-14 · A1-A4 · Sonnet · 812cedf..60f56a4 · no workflow triggers on
+  these paths (build.yml is dispatch-only; kernel-config-check runs on its
+  own paths); `bash -n` clean on every script, shellcheck not available
+  locally · A1-A4 done: 30 boards, 3 U-Boot packages, the kernel build,
+  PPAs, 4 suites and overlay/usr removed · cost unknown · next: B2 needs
+  the rootfs builder (B1); build.yml is untested until D1.
