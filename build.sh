@@ -7,7 +7,7 @@ cd "$(dirname -- "$(readlink -f -- "$0")")"
 
 usage() {
 cat << HEREDOC
-Usage: $0 --board=[orangepi-5] --suite=[resolute] --flavor=[server|desktop]
+Usage: $0 --board=[turing-rk1] --suite=[resolute] --flavor=[server|desktop]
 
 Required arguments:
   -b, --board=BOARD      target board 
