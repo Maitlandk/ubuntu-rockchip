@@ -7,11 +7,12 @@ Stock Ubuntu on Rockchip boards with **no kernel of our own**: Canonical's
 after first boot updates with `apt` from the Ubuntu archive. Ubuntu 26.04 LTS
 first; Turing RK1 (RK3588) first, other boards as mainline supports them.
 
-What the tree still is today: upstream `Joshua-Riek/ubuntu-rockchip` at
-38dfb49 (archived). It builds a vendor kernel from `Joshua-Riek/linux-rockchip`
-(a fork of `armbian/linux-rockchip`, i.e. the Rockchip BSP 5.10/6.1 tree) and
-pulls PPAs (`jjriek/*`, panfork) that are no longer maintained. All of that
-goes away; it is not updated or ported.
+The tree started as upstream `Joshua-Riek/ubuntu-rockchip` at 38dfb49
+(archived), which built a vendor kernel from `Joshua-Riek/linux-rockchip`
+(the Rockchip BSP 5.10/6.1 tree) and pulled unmaintained PPAs (`jjriek/*`,
+panfork). The kernel build, the PPAs, the other 30 boards and the old
+suites are gone (roadmap A1-A4). What is left still builds its root
+filesystem with Joshua's `livecd-rootfs` fork until B1 replaces it.
 
 Ubuntu's generic arm64 kernel enables everything the RK3588 and the RK1
 need and ships the RK1 device tree (26.04, 7.0.0-38; details in
@@ -67,18 +68,18 @@ dependencies without a reason in the commit message.
 
 ## Layout
 
-- `build.sh` drives `scripts/build-{kernel,u-boot,rootfs,image}.sh` and
+- `build.sh` drives `scripts/build-{u-boot,rootfs,image}.sh` and
   `scripts/config-image.sh`.
 - `config/boards/*.sh`: per board (`UBOOT_PACKAGE`, `UBOOT_RULES_TARGET`,
-  `COMPATIBLE_SUITES`, hooks). `config/suites/*.sh`: per Ubuntu release
-  (`KERNEL_REPO`/`KERNEL_BRANCH`, `EXTRA_PPAS`, all to be removed).
+  `COMPATIBLE_SUITES`, hooks); only `turing-rk1.sh` now.
+  `config/suites/*.sh`: per Ubuntu release; only `resolute.sh` (26.04).
   `config/flavors/`: server, desktop.
 - `config/kernel-check/*.txt`: kernel requirement profiles, checked by
   `scripts/check-kernel-config.sh`.
 - `packages/u-boot-*`: Debian packaging of U-Boot.
   `u-boot-turing-rk3588` = **mainline** U-Boot @ cb493752 (2024.01) + 3 local
   patches + Rockchip rkbin blobs (DDR init, BL31).
-- `overlay/`: files copied into the root filesystem.
+- `overlay/boot/firmware`: cloud-init seed copied onto the boot partition.
 
 ## Turing RK1 facts
 
