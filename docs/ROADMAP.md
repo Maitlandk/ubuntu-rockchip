@@ -71,7 +71,7 @@ commits; nothing new is added here.
 
 ## B. Root filesystem for 26.04 without Joshua's forks
 
-- 📋 **B1. Choose the rootfs builder** (L, parallel). Today
+- ✅ **B1. Choose the rootfs builder** (L, parallel). Today
   `scripts/build-rootfs.sh` builds Joshua's fork of `livecd-rootfs` and
   runs live-build with `PROJECT=ubuntu-cpc`. Compare: Ubuntu's own
   `livecd-rootfs` from the archive (same pipeline, no fork); Canonical's
@@ -79,6 +79,31 @@ commits; nothing new is added here.
   Criterion: smallest amount of our code that yields a stock 26.04 server
   rootfs with `linux-generic`, cloud-init and nothing from outside the
   archive. Output: a short decision note in this file, then the change.
+  *Done 2026-10-14.* **Decision: Canonical's cloud root tarball.**
+  It is the output of the same `ubuntu-cpc` livecd-rootfs pipeline, built
+  and signed by Canonical, with `linux-*` and `grub-*` purged
+  (`create-root-dir.binary`): `cloud-images.ubuntu.com/releases/resolute/
+  release/ubuntu-26.04-server-cloudimg-arm64-root.tar.xz`, 252 MB, 619
+  packages incl. `ubuntu-server` and cloud-init, no kernel, GRUB, shim or
+  flash-kernel. `SHA256SUMS.gpg` is signed by the UEC Image Automatic
+  Signing Key (`ubuntu-cloudimage-keyring`). Running livecd-rootfs
+  ourselves reproduces that pipeline with more code; mmdebstrap needs our
+  own package list and copies of the cpc hooks, i.e. our own definition
+  of Ubuntu Server. Joshua's fork was livecd-rootfs 24.04.56 plus 4
+  commits (mask AppArmor, vendor cmdline, delete cpc hooks), none kept.
+  `build-rootfs.sh` now downloads and verifies; `config-image.sh`
+  installs `linux-generic --no-install-recommends`, because the kernel
+  recommends `flash-kernel | grub-efi-arm64` and flash-kernel 3.110ubuntu2
+  exits 1 on a machine missing from its db, which the RK1 is. Desktop
+  flavor removed (no desktop tarball). `rootfs-check.yml` verifies all
+  this as annotations. For B2: nothing installs `u-boot-menu` any more
+  (it came from `ubuntu-server-rockchip`), so `build-image.sh`'s
+  `u-boot-update` fails until B2 installs it. Evidence: run 38651860639
+  of `rootfs-check.yml` (serial 20260927, `linux-image-7.0.0-38-generic`,
+  RK1 DTB and initrd present, `update-initramfs` is dracut's, no boot
+  loader package, no package outside the archive; sources are
+  `archive.ubuntu.com` and `security.ubuntu.com`, which served arm64).
+  B3: `build-image.sh`'s desktop branch is dead.
 - 📋 **B2. Boot configuration that survives `apt upgrade`** (M, after B1).
   The image already runs `u-boot-update` (package `u-boot-menu`), which
   writes `/boot/extlinux/extlinux.conf` and re-runs from the kernel's
@@ -464,3 +489,7 @@ CI run · result · cost if known · next.
   gaps: no OpenCL, no VP9 or encode, no FFmpeg hwaccel, no Python TFLite
   in the archive; F3 cluster-NPU question open for the owner · cost not
   read · next: E1 commands are in place.
+- 2026-10-14 · B1 · Opus · e83b970..650e0a9 · run 38651860639 ✅ ·
+  rootfs is Canonical's signed cloud root tarball, kernel added in
+  config-image.sh without flash-kernel, desktop flavor gone · cost not
+  read · next: B2 must install u-boot-menu.
