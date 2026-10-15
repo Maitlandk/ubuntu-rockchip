@@ -118,8 +118,8 @@ jobs:
           # vmlinuz is an EFI zboot image, which has none (rootfs-check).
           : > ../warnings
           for k in $kver; do
-            magic=$(od -A n -t x1 -j 56 -N 4 "/mnt/chk/root/boot/vmlinuz-$k" | tr -d ' ')
-            echo "vmlinuz-$k: first bytes $(od -A n -t x1 -N 4 "/mnt/chk/root/boot/vmlinuz-$k"), offset 56: $magic" >> ../report
+            magic=$(sudo od -A n -t x1 -j 56 -N 4 "/mnt/chk/root/boot/vmlinuz-$k" | tr -d ' ')
+            echo "vmlinuz-$k: first bytes $(sudo od -A n -t x1 -N 4 "/mnt/chk/root/boot/vmlinuz-$k"), offset 56: $magic" >> ../report
             [ "$magic" = 41524d64 ] ||
               echo "vmlinuz-$k has no arm64 Image magic: U-Boot's booti, which extlinux.conf uses, rejects it" >> ../warnings
           done
