@@ -67,6 +67,8 @@ jobs:
       - name: Report
         run: |
           set -eu
+          # Job logs are not readable without a sign-in: name the failing command in an annotation.
+          trap 'echo "::error title=image::report script failed at line $LINENO: $BASH_COMMAND"' ERR
           cd images
           sudo mkdir -p /mnt/chk/root /mnt/chk/esp
           disk=$(ls ./*.img.xz | grep -v -e '\.esp\.' -e '\.root\.'); esp=$(ls ./*.esp.img.xz); root=$(ls ./*.root.img.xz)
