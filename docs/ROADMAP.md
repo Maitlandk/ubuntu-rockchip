@@ -451,100 +451,31 @@ looked at); video encode paths; HDMI (F4).
 👤 All hardware steps are the owner's; sessions prepare exact commands and
 read the logs.
 
-- 📋 **E1. Runbook** (S, after B3). Back up the eMMC boot loader region and
-  partitions to the Odroid; write `*.esp.img.xz` into `mmcblk0p1` and
-  `*.root.img.xz` into `mmcblk0p2` (B3; nothing is written below the
-  partitions); interrupt U-Boot over `tpi uart`, boot `mmc0` by hand
-  (`run bootcmd_mmc0`: distro boot should find `efi/boot/bootaa64.efi` on
-  partition 1 and start GRUB, B2); a power cycle returns to the NVMe
-  system. Boot-path evidence, first: on the console, whether U-Boot ran
-  `bootaa64.efi` and GRUB showed its menu; in Linux `ls /sys/firmware/efi`,
-  `cat /proc/cmdline` (expect `root=UUID=... ro earlycon`, no `console=`),
-  `cat /sys/class/tty/console/active` (expect `ttyS9`), `cat
-  /proc/device-tree/model` and `ls /proc/device-tree | grep -i -e gpu -e
-  rknn` (Ubuntu's DTB has the GPU and NPU nodes, U-Boot 2024.01's built-in
-  one does not: if they are missing, GRUB's `devicetree` did not reach the
-  kernel). Evidence to collect: `dmesg`, `lspci`,
-  `lsusb -t`, `ip -d link`, `ethtool eth0`, NVMe and eMMC visible, fan
-  speed under load, `cpufreq` scaling, thermal zones, the serial console
-  name, plus the F1-F3 hardware checks below. No k3s on this boot.
-
-  **F1-F3 hardware checks.** Run as root, after the base evidence; installing
-  test tools into the eMMC root is fine, the NVMe system is untouched.
-  Save all output. Each block says what a pass looks like.
-
-  GPU (F1):
-
-  ```sh
-  ls -l /dev/dri/                       # card*, renderD128 (and maybe 129)
-  for n in /sys/class/drm/renderD*; do echo "$n -> $(basename "$(readlink "$n/device/driver")")"; done   # one is panthor
-  dmesg | grep -iE 'panthor|mali|firmware'   # panthor, G610, firmware loaded, no "Failed to load"
-  apt-get install -y vulkan-tools mesa-utils mesa-vulkan-drivers
-  vulkaninfo --summary | grep -iE 'deviceName|driverName|apiVersion|deviceType'   # Mali-G610, PanVK, 1.4; NOT llvmpipe
-  eglinfo -B 2>&1 | grep -iE 'renderer|OpenGL ES profile version'   # Mali-G610 / Panfrost, ES 3.1
-  ```
-
-  Video (F2):
-
-  ```sh
-  apt-get install -y v4l-utils gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav ffmpeg
-  dmesg | grep -iE 'rkvdec|hantro|vdec|multi-core'   # the second vdec: "missing multi-core support" is expected
-  v4l2-ctl --list-devices
-  for d in /dev/video*; do echo "== $d"; v4l2-ctl -d "$d" --info | grep -E 'Driver name|Card type'; v4l2-ctl -d "$d" --list-formats-out; done   # rkvdec: H.264 and HEVC slice formats; hantro: AV1, MPEG2, VP8 ...
-  gst-inspect-1.0 v4l2slh264dec v4l2slh265dec v4l2slav1dec | grep -E 'Long-name|No such'
-  # test clips, made on another machine and copied over:
-  #   ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 20 -c:v libx264 -profile:v high -pix_fmt yuv420p h264.mp4
-  #   ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 20 -c:v libx265 -pix_fmt yuv420p -tag:v hvc1 hevc.mp4
-  grep -iE 'vdec|video-codec' /proc/interrupts > /tmp/irq.before
-  time gst-launch-1.0 filesrc location=h264.mp4 ! qtdemux ! h264parse ! v4l2slh264dec ! fakesink sync=false
-  time gst-launch-1.0 filesrc location=hevc.mp4 ! qtdemux ! h265parse ! v4l2slh265dec ! fakesink sync=false
-  grep -iE 'vdec|video-codec' /proc/interrupts > /tmp/irq.after; diff /tmp/irq.before /tmp/irq.after
-  time gst-launch-1.0 filesrc location=h264.mp4 ! qtdemux ! h264parse ! avdec_h264 ! fakesink sync=false   # software baseline
-  ffmpeg -hide_banner -hwaccels         # F2 predicts no V4L2 request hwaccel
-  ```
-
-  Pass: both hardware pipelines reach EOS, the rkvdec interrupt counter
-  grows, and user CPU time is far below the software baseline.
-
-  NPU (F3):
-
-  ```sh
-  ls -l /dev/accel/                     # accel0
-  lsmod | grep -w rocket; dmesg | grep -iE 'rocket|rknn|npu'
-  apt-get install -y mesa-teflon-delegate python3-venv python3-numpy
-  ls -l /usr/lib/teflon/libteflon.so
-  python3 -m venv --system-site-packages /root/tf && /root/tf/bin/pip install ai-edge-litert pillow   # outside the archive, test only
-  curl -LO http://download.tensorflow.org/models/mobilenet_v1_2018_08_02/mobilenet_v1_1.0_224_quant.tgz && tar xzf mobilenet_v1_1.0_224_quant.tgz
-  # save the script below as npu.py, then:
-  grep -i rknn /proc/interrupts > /tmp/npu.before
-  /root/tf/bin/python npu.py mobilenet_v1_1.0_224_quant.tflite cpu
-  TEFLON_DEBUG=verbose /root/tf/bin/python npu.py mobilenet_v1_1.0_224_quant.tflite npu
-  grep -i rknn /proc/interrupts > /tmp/npu.after; diff /tmp/npu.before /tmp/npu.after
-  ```
-
-  `npu.py`:
-
-```python
-import sys, time, numpy as np
-from ai_edge_litert.interpreter import Interpreter, load_delegate
-model, mode = sys.argv[1], sys.argv[2]
-d = [load_delegate("/usr/lib/teflon/libteflon.so")] if mode == "npu" else []
-it = Interpreter(model_path=model, experimental_delegates=d); it.allocate_tensors()
-i, o = it.get_input_details()[0], it.get_output_details()[0]
-np.random.seed(0); it.set_tensor(i["index"], np.random.randint(0, 255, i["shape"], dtype=np.uint8))
-it.invoke(); t = time.time()
-for _ in range(50): it.invoke()
-print(mode, "%.1f ms" % ((time.time() - t) / 50 * 1000), "top1", int(np.argmax(it.get_tensor(o["index"]))))
-```
-
-  Pass: the verbose log shows the `rocket`
-  driver loaded and convolutions "supported", the NPU interrupt counters
-  grow, and `npu` is markedly faster than `cpu` (Mesa quotes ~18 ms on a
-  QuartzPro64) with the same top-1. If `load_delegate` crashes or reports
-  a registration error, suspect the unverified TFLite-vs-Mesa-header
-  compatibility (F3) and retry with a C++ client against the archive's
-  `libtensorflow-lite-dev` before filing anything. The pip install is for
-  this test only; the image does not carry it.
+- 🟡 **E1. Runbook** (S, after B3). **Written: `docs/e1-runbook.md`; the
+  owner runs it, nothing has been run on hardware.** It backs up the eMMC
+  (first 16 MiB, GPT, both partitions, boot partitions) to the Odroid and
+  verifies the backups; writes `*.esp.img.xz` into `mmcblk0p1` and
+  `*.root.img.xz` into `mmcblk0p2` (nothing below the partitions, hashed
+  before and after); makes cloud-init take the image's seed only (the NVMe's
+  seed partition is probably also `CIDATA`); interrupts U-Boot 2024.01 over
+  `tpi uart` and boots the ESP by hand (`run bootcmd_mmc0`, or
+  `setenv devtype mmc; setenv devnum 0; setenv distro_bootpart 1; run
+  scan_dev_for_efi` when the old table types partition 2 as the ESP); a power
+  cycle returns to the NVMe system. `scripts/e1-evidence.sh` collects the boot
+  path (EFI, `/proc/cmdline`, `ttyS9`, the GPU and NPU nodes in the running
+  tree, `/sys/firmware/fdt` against `/boot/dtb-<kver>` outside `/chosen`) and
+  the hardware evidence (dmesg, lspci, lsusb, ethtool, NVMe/eMMC, mmc timing,
+  cpufreq, thermal, fan under load) and ends in PASS/FAIL lines; the F1-F3
+  checks that were here moved into the runbook unchanged. Read from U-Boot
+  at cb493752 (the commit the installed 2024.01 package was cut from), not from
+  the board: `part list -bootable` counts an ESP-typed partition as bootable
+  (`cmd/part.c`, `disk/part_efi.c`), distro boot's `scan_dev_for_efi` runs
+  `efi/boot/bootaa64.efi` with `bootefi` after looking for extlinux and
+  `boot.scr`, and `load` records the ESP as the boot device so that GRUB's
+  `(,gpt2)` resolves; whether the node's U-Boot was built with
+  `CONFIG_EFI_LOADER` (default y on arm64; the RK1 defconfig does not unset it) is the first thing the runbook
+  asks the console. `docs/e1-runbook.md` is also where E2 finds what is
+  expected to pass.
 - ⏳ **E2. Read the evidence** (S, after E1). File Launchpad bugs or
   mainline reports for anything missing; record findings in CLAUDE.md.
 
