@@ -127,8 +127,11 @@ commits; nothing new is added here.
   the board defconfig's `CONFIG_DEFAULT_FDT_FILE`) fits under that
   `fdtdir`. The command line is `ro earlycon`, no `console=`: the kernel
   then takes its console from the DT's `stdout-path` (`serial9`), so it
-  cannot contradict it; whether to add `console=ttyS9,115200n8` is left to
-  the serial-console finding (see the session log).
+  cannot contradict it. Confirmed from Ubuntu's config: line 9 exists
+  (`SERIAL_8250_RUNTIME_UARTS=32`, run 38660291621), and `rootfs-check`
+  now fails if a `console=ttyS0` can reach `extlinux.conf` (the cloud
+  tarball's GRUB defaults carry `console=tty1`/`ttyAMA0`, which nothing
+  feeds to extlinux). E1: `/proc/cmdline`, `/sys/class/tty/console/active`.
 
   **The finding that stops B2: this image cannot boot with extlinux.**
   Ubuntu 26.04's arm64 `vmlinuz` is an EFI *zboot* image, not an arm64
@@ -612,5 +615,5 @@ CI run · result · cost if known · next.
   D1 done; B2 stopped: Ubuntu's `vmlinuz` is an EFI zboot image that U-Boot's
   `booti` rejects, so extlinux cannot boot it, owner to choose between UEFI
   boot via GRUB and unpacking the kernel · console left at the DT's
-  `stdout-path` (no `console=`) · cost not read (no cost API in the session,
+  `stdout-path` (no `console=`, ttyS9 confirmed by config, CI guards ttyS0) · cost not read (no cost API in the session,
   only plan percentages) · next: decide B2's boot path; D2 and E1 wait on it.

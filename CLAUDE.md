@@ -97,11 +97,17 @@ Verified on a running RK1 (turingnode2, 2026-10-14) unless marked otherwise.
   change to it.
 - eMMC is 29 GiB: `mmcblk0p1` 512M + `mmcblk0p2` 28.6G (a stale original
   install), plus unused 4 MiB hardware boot partitions.
-- Serial console: `ttyS9,115200` on the vendor kernel. Mainline's
-  `rk3588-turing-rk1.dts` (v7.0) has `stdout-path = "serial9:115200n8"`, so
-  it should be `ttyS9` there too, not the `ttyS0` that Armbian's board
-  config and this repo's oracular hook use. Read from source, not yet seen
-  on the console; Ubuntu's `SERIAL_8250_NR_UARTS` must also allow line 9.
+- Serial console: `ttyS9,115200` on the vendor kernel, and it is `ttyS9` on
+  Ubuntu's too. Mainline's `rk3588-turing-rk1.dts` (v7.0) has `stdout-path =
+  "serial9:115200n8"` and `rk3588-base.dtsi` aliases `serial9` to the UART
+  at `febc0000`. Ubuntu 26.04's 7.0.0-38 config has
+  `SERIAL_8250_RUNTIME_UARTS=32` (and `NR_UARTS=48`, `8250_CONSOLE=y`,
+  `DW=y`, `SERIAL_EARLYCON=y`; rootfs-check run 38660291621), so line 9
+  exists. `ttyS0` (uart0) is disabled on the RK1: a `console=ttyS0` would
+  silence the line and, as a cmdline console, turn off the stdout-path
+  fallback. The image therefore sets no `console=` and CI fails if one
+  reaches `extlinux.conf`. Not yet seen on the console; E1 checks
+  `/proc/cmdline` and `/sys/class/tty/console/active`.
 - **Ubuntu's arm64 `vmlinuz` is an EFI zboot image** (26.04, 7.0.0-38:
   `CONFIG_EFI_ZBOOT=y`, bytes at offset 56 are zero; rootfs-check run
   38655920188). U-Boot's `booti`, which `extlinux.conf` uses, needs the
