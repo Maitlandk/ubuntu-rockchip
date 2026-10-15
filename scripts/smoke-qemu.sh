@@ -211,7 +211,7 @@ timeout "${SMOKE_TIMEOUT:-1500}" qemu-system-aarch64 \
     -drive if=pflash,format=raw,file="$work/vars.fd" \
     -drive if=none,format=raw,file="$work/decoy.img",id=d1 -device virtio-blk-pci,drive=d1 \
     -drive if=none,format=raw,file="$work/disk.img",id=d0 -device virtio-blk-pci,drive=d0,bootindex=0 \
-    -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+    -netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile= \
     -device virtio-rng-pci 2> qemu.err || rc=$?
 [ "$rc" -eq 0 ] || err "qemu exited with $rc$([ "$rc" -ne 124 ] || echo ' (timed out)'): $(head -c 600 qemu.err | paste -sd'|')"
 
