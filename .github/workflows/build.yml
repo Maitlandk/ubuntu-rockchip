@@ -113,6 +113,16 @@ jobs:
               [ -f "/mnt/chk/root/$f" ] || echo "no /$f in the root image" >> ../errors
             done
           done
+          # extlinux.conf starts the kernel with U-Boot's booti, which only
+          # takes an arm64 Image (magic "ARMd" at offset 56). Ubuntu's
+          # vmlinuz is an EFI zboot image, which has none (rootfs-check).
+          : > ../warnings
+          for k in $kver; do
+            magic=$(od -A n -t x1 -j 56 -N 4 "/mnt/chk/root/boot/vmlinuz-$k" | tr -d ' ')
+            echo "vmlinuz-$k: first bytes $(od -A n -t x1 -N 4 "/mnt/chk/root/boot/vmlinuz-$k"), offset 56: $magic" >> ../report
+            [ "$magic" = 41524d64 ] ||
+              echo "vmlinuz-$k has no arm64 Image magic: U-Boot's booti, which extlinux.conf uses, rejects it" >> ../warnings
+          done
           grep -rqs 'unified_cgroup_hierarchy' "$ext" /mnt/chk/root/etc/default /mnt/chk/root/etc/kernel 2>/dev/null &&
             echo "cgroup v1 on the kernel command line" >> ../errors
           sudo umount /mnt/chk/root
@@ -132,6 +142,10 @@ jobs:
             [ -n "$line" ] || continue
             echo "::error title=image::$line"
           done < errors
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            echo "::warning title=image::$line"
+          done < warnings
           msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' report)
           echo "::notice title=image ($BOARD $SUITE $FLAVOR)::$msg"
           test ! -s errors
