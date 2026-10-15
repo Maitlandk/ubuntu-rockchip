@@ -16,7 +16,12 @@
 #  - the `devicetree /boot/dtb-<kver>` lines are removed from grub.cfg: they
 #    hand the kernel the RK1's device tree, which describes no virtio
 #    device, so it would find neither its root nor the network;
-#  - a test script is appended to the cloud-init seed on the ESP.
+#  - a test script is appended to the cloud-init seed on the ESP;
+#  - the ESP is relabelled E1SEED and the root gets a cloud-init setting that
+#    looks for that label only (docs/e1-runbook.md, step 5), and a second
+#    disk labelled CIDATA with a decoy seed is attached first. On the RK1 the
+#    production NVMe has a CIDATA partition too, and cloud-init must not take
+#    its seed: the guest reports whether it took the decoy's.
 # The image's own seed, command line, initrd and everything else are used
 # as they are.
 
@@ -47,15 +52,17 @@ trap cleanup EXIT
 
 xz -dc "$img_xz" | dd of="$work/disk.img" bs=1M conv=sparse status=none
 # Mount the two partitions by offset: the runner's udev does not create the
-# nodes of a loop device's partitions (run 38672788100).
+# nodes of a loop device's partitions (run 38672788100); the offsets are
+# from sgdisk, which the build report already reads this image with.
+part_range() { # <n>: start and size of partition n, in sectors
+    sgdisk -i "$1" "$work/disk.img" | awk '
+        /^First sector:/ { first = $3 }
+        /^Last sector:/ { last = $3 }
+        END { print first, last - first + 1 }'
+}
 mount_part() { # <n> <mount point>
     local start size
-    read -r start size < <(sfdisk -d "$work/disk.img" | awk -v n="$1" '
-        /^\// && ++i == n {
-            match($0, /start= *[0-9]+/); st = substr($0, RSTART + 6, RLENGTH - 6) + 0
-            match($0, /size= *[0-9]+/); sz = substr($0, RSTART + 5, RLENGTH - 5) + 0
-            print st, sz
-        }')
+    read -r start size < <(part_range "$1")
     mount -o "loop,offset=$((start * 512)),sizelimit=$((size * 512))" "$work/disk.img" "$2"
 }
 mount_part 1 "$mnt/esp"
@@ -124,6 +131,9 @@ write_files:
       say "esp: $(findmnt -n -o SOURCE,FSTYPE /boot/efi)"
       cloud-init status --wait > /tmp/ci.status 2>&1
       say "cloud-init: rc=$? $(tr '\n' ' ' < /tmp/ci.status)"
+      say "instance-id: $(cat /var/lib/cloud/data/instance-id)"
+      say "decoy seed: $(test -e /etc/decoy-seed-was-used && echo USED || echo not used)"
+      say "seed device: $(grep -hoE 'Using (seeded )?data from [^ ]*' /var/log/cloud-init.log | head -n1)"
       say "timing: $(systemd-analyze 2>&1 | head -n1)"
       n=0
       until ip route show default | grep -q . || [ $n -ge 120 ]; do sleep 1; n=$((n + 1)); done
@@ -143,7 +153,28 @@ EOF
 grep -qE '^\s+devicetree\s' "$cfg" || err "grub.cfg of the image has no devicetree line (the image build checks for one)"
 sed -i -E '/^\s+devicetree\s/d' "$cfg"
 
+# Only the E1SEED-labelled seed counts for cloud-init (the label is set below).
+cat > "$mnt/root/etc/cloud/cloud.cfg.d/99-e1-seed.cfg" << 'EOF'
+datasource:
+  NoCloud:
+    fs_label: E1SEED
+EOF
+
 umount "$mnt/esp" "$mnt/root"
+
+read -r start size < <(part_range 1)
+espdev=$(losetup -f --show -o $((start * 512)) --sizelimit $((size * 512)) "$work/disk.img")
+fatlabel "$espdev" E1SEED
+losetup -d "$espdev"
+
+# The decoy: what the production NVMe's seed partition looks like to cloud-init.
+truncate -s 32M "$work/decoy.img"
+mkfs.vfat -n CIDATA "$work/decoy.img" > /dev/null
+mkdir "$mnt/decoy"
+mount -o loop "$work/decoy.img" "$mnt/decoy"
+printf '#cloud-config\nruncmd:\n  - [ touch, /etc/decoy-seed-was-used ]\n' > "$mnt/decoy/user-data"
+printf 'instance-id: decoy\n' > "$mnt/decoy/meta-data"
+umount "$mnt/decoy"
 
 # UEFI firmware as pflash, the disk on virtio, user-mode networking.
 code=/usr/share/AAVMF/AAVMF_CODE.fd
@@ -159,7 +190,8 @@ timeout "${SMOKE_TIMEOUT:-1500}" qemu-system-aarch64 \
     -display none -monitor none -serial file:serial.log -no-reboot \
     -drive if=pflash,format=raw,readonly=on,file="$work/code.fd" \
     -drive if=pflash,format=raw,file="$work/vars.fd" \
-    -drive if=none,format=raw,file="$work/disk.img",id=d0 -device virtio-blk-pci,drive=d0 \
+    -drive if=none,format=raw,file="$work/decoy.img",id=d1 -device virtio-blk-pci,drive=d1 \
+    -drive if=none,format=raw,file="$work/disk.img",id=d0 -device virtio-blk-pci,drive=d0,bootindex=0 \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
     -device virtio-rng-pci || rc=$?
 [ "$rc" -eq 0 ] || err "qemu exited with $rc$([ "$rc" -ne 124 ] || echo ' (timed out)')"
@@ -183,6 +215,8 @@ else
     want "systemd did not finish starting (is-system-running is not running or degraded)" 'is-system-running: (running|degraded)'
     want "cloud-init did not finish with status: done" 'cloud-init: rc=0 status: done'
     want "apt-get update failed" 'apt-get-update: rc=0 '
+    want "cloud-init did not use the image's seed (instance-id)" 'instance-id: cloud-image$'
+    want "cloud-init used the decoy CIDATA seed although only E1SEED is allowed" 'decoy seed: not used$'
     want "the test did not get to its end" 'end$'
     grep -aqE '^SMOKE failed units: *$' serial.log || err "failed units: $(sed -n 's/^SMOKE failed units: //p' serial.log)"
     grep -aq '^SMOKE console: ttyAMA0' serial.log || warn "the kernel's console is not ttyAMA0: $(sed -n 's/^SMOKE console: //p' serial.log)"
