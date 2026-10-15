@@ -25,7 +25,10 @@
 # The image's own seed, command line, initrd and everything else are used
 # as they are.
 
-set -eEuo pipefail
+# No pipefail and no -E: the ERR trap would also fire inside the $(...) of the
+# report lines (grep finding nothing is a result there) and its annotation would
+# end up in the report.
+set -eu
 
 out=${SMOKE_OUT:-$PWD/smoke}
 img_xz=$(readlink -f "${1:?usage: $0 <name>.img.xz}")   # absolute: the script changes directory
@@ -63,7 +66,7 @@ on_exit() {
 }
 trap on_exit EXIT
 
-xz -dc "$img_xz" | dd of="$work/disk.img" bs=1M conv=sparse status=none
+(set -o pipefail; xz -dc "$img_xz" | dd of="$work/disk.img" bs=1M conv=sparse status=none)
 # Mount the two partitions by offset: the runner's udev does not create the
 # nodes of a loop device's partitions (run 38672788100); the offsets are
 # from sgdisk, which the build report already reads this image with.
@@ -209,8 +212,8 @@ timeout "${SMOKE_TIMEOUT:-1500}" qemu-system-aarch64 \
     -drive if=none,format=raw,file="$work/decoy.img",id=d1 -device virtio-blk-pci,drive=d1 \
     -drive if=none,format=raw,file="$work/disk.img",id=d0 -device virtio-blk-pci,drive=d0,bootindex=0 \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
-    -device virtio-rng-pci || rc=$?
-[ "$rc" -eq 0 ] || err "qemu exited with $rc$([ "$rc" -ne 124 ] || echo ' (timed out)')"
+    -device virtio-rng-pci 2> qemu.err || rc=$?
+[ "$rc" -eq 0 ] || err "qemu exited with $rc$([ "$rc" -ne 124 ] || echo ' (timed out)'): $(head -c 600 qemu.err | paste -sd'|')"
 
 # Strip the escape sequences and carriage returns of the console.
 sed -i -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\r//g' serial.log
