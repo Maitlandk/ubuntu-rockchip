@@ -10,6 +10,9 @@
 #
 # Usage: sudo scripts/e1-evidence.sh [seconds of CPU load, default 120]
 
+# The commands handed to sh_run are single-quoted on purpose: they expand in
+# the shell that sh_run starts, so that each saved file also holds its command.
+# shellcheck disable=SC2016
 set -u
 
 if [ "$(id -u)" -ne 0 ]; then echo "run as root" >&2; exit 1; fi
