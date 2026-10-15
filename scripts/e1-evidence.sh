@@ -11,7 +11,7 @@
 # Usage: sudo scripts/e1-evidence.sh [seconds of CPU load, default 120]
 
 # The commands handed to sh_run are single-quoted on purpose: they expand in
-# the shell that sh_run starts, so that each saved file also holds its command.
+# the shell that sh_run starts.
 # shellcheck disable=SC2016
 set -u
 
