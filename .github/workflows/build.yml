@@ -108,6 +108,8 @@ jobs:
             echo "extlinux.conf:"; cat "$ext"
           } >> ../report
           grep -q "root=UUID=$uuid" "$ext" || echo "extlinux.conf does not point at root=UUID=$uuid" >> ../errors
+          # uart0 is disabled on the RK1; the console is ttyS9 from the DT's stdout-path.
+          ! grep -q 'console=ttyS0' "$ext" || echo "extlinux.conf has console=ttyS0" >> ../errors
           for k in $kver; do
             for f in "boot/vmlinuz-$k" "boot/initrd.img-$k" "lib/firmware/$k/device-tree/rockchip/rk3588-turing-rk1.dtb"; do
               [ -f "/mnt/chk/root/$f" ] || echo "no /$f in the root image" >> ../errors
