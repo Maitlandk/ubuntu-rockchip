@@ -34,17 +34,15 @@ The base is torvalds/master 0fcb05b72344 (v7.3-rc7). `--base` is recorded in the
 
 **Checks.**
 
-- Passed: `scripts/checkpatch.pl --strict`: 0 errors, 0 warnings, 0 checks.
-- Still needed: build and schema check. Nothing was compiled in the session. Run this in a full tree at the base commit:
+- Passed, in CI (`.github/workflows/dtbs-check.yml`, run 38680595353), at the
+  base commit:
+  - `git am` applies cleanly;
+  - `make ARCH=arm64 CHECK_DTBS=y W=1 rockchip/rk3588-turing-rk1.dtb`: 0 warnings
+    before the patch, 0 after (dt-validate 2026.9; kbuild printed `DTC [C]` for
+    the dtb, so the schema check ran);
+  - `scripts/checkpatch.pl --strict`, in the tree: 0 errors, 0 warnings, 0 checks.
 
-  ```sh
-  git am 0001-*.patch
-  make ARCH=arm64 defconfig
-  make ARCH=arm64 CHECK_DTBS=y W=1 rockchip/rk3588-turing-rk1.dtb
-  ```
-
-  Compare against the same command without the patch: no new warnings is the pass condition.
-  This needs `pip install dtschema yamllint`. It runs natively on an arm64 runner or host.
+  The workflow re-runs on every change under `upstream/linux/`.
 
 **Before sending (owner):**
 

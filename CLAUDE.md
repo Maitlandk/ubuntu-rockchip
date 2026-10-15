@@ -85,6 +85,9 @@ dependencies without a reason in the commit message.
   Build: boots the built disk image on QEMU `virt` with UEFI firmware (GRUB,
   kernel, initrd, systemd, cloud-init, `apt-get update`). It cannot say
   anything about U-Boot, the RK1 device tree or RK3588 drivers.
+- `upstream/linux/`: prepared upstream kernel patches, never built into an
+  image. `.github/workflows/dtbs-check.yml` runs `CHECK_DTBS=y W=1` and
+  `checkpatch --strict` on them at their base-commit.
 - `docs/e1-runbook.md` and `scripts/e1-evidence.sh`: the owner's first
   hardware boot, step by step, and its evidence collector.
 

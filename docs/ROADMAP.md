@@ -316,7 +316,7 @@ scripts until it has evidence.
   check whether any cluster workload uses the NPU today (ask the cluster
   agent). Hardware check: `/dev/accel/accel0`, one TFLite model through
   the delegate.
-- 🟡 **F4. HDMI on the RK1: device tree gap** (M). Patch prepared, not sent: `upstream/linux/` (HDMI0 + VOP vp0 + hdptxphy0 in the `.dts`; checkpatch --strict clean; dtbs_check and a node 1 boot test still owed, then the owner sends it). Mainline's
+- 🟡 **F4. HDMI on the RK1: device tree gap** (M). Patch prepared, not sent: `upstream/linux/` (HDMI0 + VOP vp0 + hdptxphy0 in the `.dts`; checkpatch --strict and dtbs_check clean in CI, run 38680595353; a node 1 boot test still owed, then the owner sends it). Mainline's
   `rk3588-turing-rk1.dtsi` (and the 4-line `.dts`) enable no display
   nodes: no `vop`, `hdmi0` or `hdptxphy` (checked against torvalds/master,
   2026-10-14). The drivers exist; the board description does not use them.
@@ -606,3 +606,8 @@ CI run · result · cost if known · next.
   the cause was in the test script, not the task; the rest differed each
   time · cost not read · next: the owner runs the runbook
   (E1); E2 reads what comes back.
+- 2026-10-15 · F4 dtbs_check · Opus · 5837943..HEAD · dtbs-check run
+  38680261211 ✅, 38680595353 ✅ (second run proves dt-validate ran) · patch
+  applies at its base, 0 dtbs warnings before and after, checkpatch --strict
+  clean in the tree · cost not read · next: owner boot-tests on node 1, then
+  sends.
