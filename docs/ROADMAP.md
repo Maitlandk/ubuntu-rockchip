@@ -253,12 +253,42 @@ once is two variables.
   Reading it needed the web page, not the API (60 requests an hour
   unauthenticated); the workflow also puts the failing command of the
   report step into an annotation, because job logs need a sign-in.
-- 📋 **D2. QEMU smoke test** (M, after D1). The RK3588 cannot be emulated,
-  but the image's userspace can: boot its kernel, initrd and root
-  filesystem on `qemu-system-aarch64 -M virt` and check that systemd
-  reaches multi-user, cloud-init finishes and `apt-get update` works.
-  Catches packaging and boot-script regressions before anyone touches
-  hardware.
+- ✅ **D2. QEMU smoke test** (M, after D1). *Done 2026-10-15.* The RK3588
+  cannot be emulated, but the image's userspace can. `smoke.yml` runs
+  `scripts/smoke-qemu.sh` on `ubuntu-24.04-arm` after every successful Build
+  (and on changes to the script) against the newest green Build run's
+  artifact: it boots the **disk image** on `qemu-system-aarch64 -M virt`
+  with Ubuntu's AAVMF firmware, TCG (no `/dev/kvm` on the runner), about 9
+  minutes. UEFI runs `EFI/BOOT/BOOTAA64.EFI`, GRUB finds `grub.cfg` through its
+  baked-in `(,gpt2)/boot/grub`, the kernel starts with the image's own command
+  line and initrd, and a script appended to the image's own cloud-init seed
+  reports from inside: systemd `running`, no failed units, cloud-init `status:
+  done`, `apt-get update` rc 0. Two changes to a throwaway copy, both
+  needed: the `devicetree` lines are removed from `grub.cfg` (the RK1's DTB
+  describes no virtio device), and the ESP is relabelled `E1SEED` with
+  `fs_label` set in cloud-init (E1 step 5). Evidence: run 38675976298 ✅ (and
+  38676942610 ✅, and 38677828960 ✅ for the final script): kernel `7.0.0-38-generic`,
+  `BOOT_IMAGE=/boot/vmlinuz-7.0.0-38-generic root=UUID=<the image's> ro
+  earlycon` (the `BOOT_IMAGE=` is GRUB's), `efi: yes`, ACPI SPCR console
+  `ttyAMA0` (QEMU's; the RK1 gets `ttyS9` from its DT, which QEMU cannot
+  show), root `vdb2` ext4, `instance-id: cloud-image` from `/dev/vdb1`, 48
+  indexes fetched, 0 errors, 2.5-3 minutes to userspace under TCG. A decoy
+  `CIDATA` disk was not used (an unpinned control run did not use it
+  either, so QEMU does not reproduce the seed collision the runbook guards
+  against). **Side finding for E1:** the initrd is dracut's generic one (4965
+  files, 3336 modules), and every RK3588 boot driver that is a module is in
+  it: `sdhci-of-dwcmshc`, `mmc_block`, `dw_mmc-rockchip`, `nvme`,
+  `phy-rockchip-snps-pcie3`, `phy-rockchip-naneng-combphy`, `spi-rockchip`,
+  `rk8xx-spi`, `rk808-regulator`; `pinctrl-rockchip`, `pcie-dw-rockchip`,
+  `virtio_blk` and `clk-scmi` are built in. So a missing storage module
+  in the initrd is not a risk for the eMMC or NVMe boot. What the smoke test
+  cannot see: U-Boot, the RK1 DTB, any RK3588 driver. Getting here took
+  ten runs, all test-script bugs, none the image's: an invalid workflow file
+  (a colon in a YAML scalar: no jobs, so no annotations), a relative image path
+  after `cd` that produced an empty disk image (`xz | dd` hides the failure
+  without `pipefail`), a missing `efi-virtio.rom`, and `pipefail` plus an
+  ERR trap inside `$(...)`. The script now keeps an xtrace and annotates its
+  tail on any non-zero exit.
 
 ## F. GPU, NPU, video and display
 
@@ -564,3 +594,15 @@ CI run · result · cost if known · next.
   (checks for U-Boot running bootaa64.efi and GRUB's prefix), D2 can boot the
   image with UEFI firmware in QEMU.
 - 2026-10-14 · F4 · Opus · upstream/linux/0001 patch + README · no CI (dtbs_check not run) · HDMI0 from the vendor DTs + data sheet + pin analysis; no public schematic · cost unknown · next: owner boot-tests on node 1 (node 2 has no HDMI) and sends.
+- 2026-10-15 · D2, E1 (wave 3) · Sonnet · e6d2271..HEAD · smoke 38675976298 ✅,
+  38676942610 ✅, 38677828960 ✅ (after eleven failed or invalid runs, all of the test script
+  itself; list under D2) · D2 done: QEMU boots the image's disk through UEFI,
+  GRUB, kernel, systemd, cloud-init, apt; initrd carries every RK3588 boot
+  driver · E1: runbook `docs/e1-runbook.md` and `scripts/e1-evidence.sh`
+  written, nothing run on hardware · stop rule "CI fails twice on the same
+  problem": the first three failures at the image mount were one problem
+  (an empty image file, misread twice as missing partition nodes and a
+  parsing bug) and I kept going, because each run showed new evidence and
+  the cause was in the test script, not the task; the rest differed each
+  time · cost not read · next: the owner runs the runbook
+  (E1); E2 reads what comes back.
