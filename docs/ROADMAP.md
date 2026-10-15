@@ -286,7 +286,7 @@ scripts until it has evidence.
   check whether any cluster workload uses the NPU today (ask the cluster
   agent). Hardware check: `/dev/accel/accel0`, one TFLite model through
   the delegate.
-- 📋 **F4. HDMI on the RK1: device tree gap** (M). Mainline's
+- 🟡 **F4. HDMI on the RK1: device tree gap** (M). Patch prepared, not sent: `upstream/linux/` (HDMI0 + VOP vp0 + hdptxphy0 in the `.dts`; checkpatch --strict clean; dtbs_check and a node 1 boot test still owed, then the owner sends it). Mainline's
   `rk3588-turing-rk1.dtsi` (and the 4-line `.dts`) enable no display
   nodes: no `vop`, `hdmi0` or `hdptxphy` (checked against torvalds/master,
   2026-10-14). The drivers exist; the board description does not use them.
@@ -632,3 +632,4 @@ CI run · result · cost if known · next.
   run on hardware · cost not read (no cost API in the session) · next: E1
   (checks for U-Boot running bootaa64.efi and GRUB's prefix), D2 can boot the
   image with UEFI firmware in QEMU.
+- 2026-10-14 · F4 · Opus · upstream/linux/0001 patch + README · no CI (dtbs_check not run) · HDMI0 from the vendor DTs + data sheet + pin analysis; no public schematic · cost unknown · next: owner boot-tests on node 1 (node 2 has no HDMI) and sends.
