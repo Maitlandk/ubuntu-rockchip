@@ -59,6 +59,8 @@ jobs:
           cat > check.sh << 'EOF'
           set -eu
           export DEBIAN_FRONTEND=noninteractive
+          # flash-kernel exits in a container or chroot unless told otherwise.
+          export FK_FORCE=yes
           r=/w/report; e=/w/errors; : > "$r"; : > "$e"
           echo "serial: $(cat /etc/cloud/build.info 2>/dev/null | tr '\n' ' ')" >> "$r"
           for p in ubuntu-server cloud-init dracut; do

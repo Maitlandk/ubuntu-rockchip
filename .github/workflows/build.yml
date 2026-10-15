@@ -156,7 +156,7 @@ jobs:
                     sed 's/^linux-image-\(.*\)-generic .*/\1/' | grep -vxF "${kver%-generic}" | sort -V | head -n1)
           if [ -z "$other" ]; then
             echo "no second linux-image-*-generic in the archive to install" >> ../errors
-          elif ! rw env DEBIAN_FRONTEND=noninteractive apt-get -y -qq install --no-install-recommends "linux-image-$other-generic"; then
+          elif ! rw env FK_FORCE=yes DEBIAN_FRONTEND=noninteractive apt-get -y -qq install --no-install-recommends "linux-image-$other-generic"; then
             echo "installing linux-image-$other-generic in the image failed" >> ../errors
           else
             for k in $kvers "$other-generic"; do
@@ -165,7 +165,7 @@ jobs:
             done
             echo "after installing linux-image-$other-generic, grub.cfg:" >> ../report
             sudo grep -E '^\s+(linux|initrd|devicetree)\s' /mnt/chk/rw/boot/grub/grub.cfg | sort -u >> ../report
-            rw env DEBIAN_FRONTEND=noninteractive apt-get -y -qq purge "linux-image-$other-generic" "linux-modules-$other-generic" ||
+            rw env FK_FORCE=yes DEBIAN_FRONTEND=noninteractive apt-get -y -qq purge "linux-image-$other-generic" "linux-modules-$other-generic" ||
               echo "removing linux-image-$other-generic failed" >> ../errors
             ! sudo grep -q "dtb-$other-generic" /mnt/chk/rw/boot/grub/grub.cfg ||
               echo "after removing $other-generic, grub.cfg still mentions its DTB" >> ../errors

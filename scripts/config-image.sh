@@ -85,6 +85,11 @@ teardown_mountpoint() {
 # Prevent dpkg interactive dialogues
 export DEBIAN_FRONTEND=noninteractive
 
+# flash-kernel does nothing in a chroot unless asked (its main() exits when
+# systemd-detect-virt --chroot says so), and the kernel installs below run
+# in one; it must install the DTB (see the boot packages below).
+export FK_FORCE=yes
+
 # Override localisation settings to address a perl warning
 export LC_ALL=C
 
