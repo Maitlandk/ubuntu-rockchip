@@ -1,0 +1,75 @@
+# Does the built image's userspace come up?
+#
+# Boots the disk image of a successful Build run on qemu-system-aarch64
+# (-M virt, UEFI firmware) with scripts/smoke-qemu.sh: GRUB, kernel,
+# initrd, systemd, cloud-init, apt. The RK3588 itself cannot be emulated.
+# Runs after every successful Build, and on changes to the script, against
+# the newest successful Build run; the result is annotations (see "Reading
+# CI results" in CLAUDE.md).
+
+name: Smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: Build run whose image to boot (default: the newest successful one)
+        required: false
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+  push:
+    paths:
+      - scripts/smoke-qemu.sh
+      - .github/workflows/smoke.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: |
+          shellcheck -f gcc scripts/smoke-qemu.sh |
+            sed -E 's/^([^:]+):([0-9]+):([0-9]+): (.*)$/::error file=\1,line=\2,col=\3::\4/'
+          exit "${PIPESTATUS[0]}"
+
+  smoke:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Find the Build run
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=${{ github.event.workflow_run.id || github.event.inputs.run-id }}
+          [ -n "$id" ] || id=$(gh run list --workflow build.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId' -R "$GITHUB_REPOSITORY")
+          [ -n "$id" ] || { echo "::error title=smoke::no successful Build run to take an image from"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "::notice title=smoke::testing the image of Build run $id"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ubuntu-26.04-server-turing-rk1
+          path: images
+          run-id: ${{ steps.build.outputs.id }}
+          github-token: ${{ github.token }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install --no-install-recommends \
+            qemu-system-arm qemu-efi-aarch64 xz-utils initramfs-tools-core cpio zstd
+
+      - name: Boot it
+        run: |
+          disk=$(ls images/*.img.xz | grep -v -e '\.esp\.' -e '\.root\.')
+          sudo SMOKE_OUT="$PWD/smoke" scripts/smoke-qemu.sh "$disk"
