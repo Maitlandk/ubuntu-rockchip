@@ -25,10 +25,11 @@
 # The image's own seed, command line, initrd and everything else are used
 # as they are.
 
-set -eEu
+set -eEuo pipefail
 
 out=${SMOKE_OUT:-$PWD/smoke}
-img_xz=${1:?usage: $0 <name>.img.xz}
+img_xz=$(readlink -f "${1:?usage: $0 <name>.img.xz}")   # absolute: the script changes directory
+[ -f "$img_xz" ] || { echo "::error title=smoke::no such image: $1"; exit 1; }
 
 mkdir -p "$out"
 cd "$out"
