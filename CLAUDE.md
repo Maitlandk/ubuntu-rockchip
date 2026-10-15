@@ -81,6 +81,12 @@ dependencies without a reason in the commit message.
   (boot order) + Rockchip rkbin blobs (DDR init, BL31).
 - `overlay/boot/firmware`: cloud-init seed, copied onto the ESP (partition 1,
   label CIDATA, mounted at `/boot/efi`).
+- `scripts/smoke-qemu.sh`, run by `.github/workflows/smoke.yml` after every
+  Build: boots the built disk image on QEMU `virt` with UEFI firmware (GRUB,
+  kernel, initrd, systemd, cloud-init, `apt-get update`). It cannot say
+  anything about U-Boot, the RK1 device tree or RK3588 drivers.
+- `docs/e1-runbook.md` and `scripts/e1-evidence.sh`: the owner's first
+  hardware boot, step by step, and its evidence collector.
 
 ## Turing RK1 facts
 
@@ -152,6 +158,10 @@ done
 
 New workflows follow the same rule: anything a session needs to read comes
 out as an annotation.
+
+A workflow file that does not parse (a colon in a plain YAML scalar did it)
+has no jobs and so no annotations; the run page shows "Invalid workflow
+file". Unauthenticated API calls are limited to 60 an hour.
 
 ## Testing on hardware
 
