@@ -98,8 +98,7 @@ ssh $NODE '
   sudo sgdisk -p /dev/mmcblk0
   sudo sgdisk -i 1 /dev/mmcblk0; sudo sgdisk -i 2 /dev/mmcblk0
   ls /proc/mtd /dev/mmcblk0boot0 /dev/mmcblk0boot1; cat /proc/mtd
-  echo "seed keys:"; grep -oE "^[A-Za-z_]+:" /boot/firmware/user-data | sort -u | tr "
-" " "; echo
+  echo "seed keys:"; grep -oE "^[A-Za-z_]+:" /boot/firmware/user-data | sort -u | xargs
   echo "seed mentions of k3s/token/rancher: $(grep -ciE "k3s|token|rancher" /boot/firmware/user-data)"
   grep -rIhE "LABEL=|PARTLABEL=" /etc/fstab /boot/firmware /boot/extlinux 2>/dev/null
 ' 2>&1 | tee "$B/preflight.txt"
