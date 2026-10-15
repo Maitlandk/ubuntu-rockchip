@@ -90,7 +90,7 @@ mount_part 2 "$mnt/root"
 cfg=$mnt/root/boot/grub/grub.cfg
 kvers=
 for f in "$mnt/root"/boot/vmlinuz-*; do kvers="$kvers ${f##*/vmlinuz-}"; done
-echo "image: $(basename "$img_xz")" >> report
+echo "image: $(basename "$img_xz"); cloud-init pinned to the E1SEED label: ${SMOKE_PIN:-yes}" >> report
 echo "kernel(s):$kvers" >> report
 
 # What the initramfs carries of what the RK3588 needs to reach its root. A
@@ -129,7 +129,8 @@ done
 if grep -qE '^(write_files|runcmd|power_state):' "$mnt/esp/user-data"; then
     err "the seed's user-data already has write_files, runcmd or power_state: the smoke test cannot append its own"
 fi
-cat >> "$mnt/esp/user-data" << 'EOF'
+smoke_block() {
+    cat << 'EOF'
 
 # --- appended by scripts/smoke-qemu.sh, not part of the image ---
 write_files:
@@ -166,6 +167,8 @@ write_files:
 runcmd:
   - [ systemd-run, --no-block, --unit=smoke, /usr/local/sbin/smoke.sh ]
 EOF
+}
+smoke_block >> "$mnt/esp/user-data"
 
 # The firmware's device tree and the RK1's built-in one are not what this
 # test is about (see the header): drop the devicetree lines in the copy.
@@ -173,25 +176,33 @@ grep -qE '^\s+devicetree\s' "$cfg" || err "grub.cfg of the image has no devicetr
 sed -i -E '/^\s+devicetree\s/d' "$cfg"
 
 # Only the E1SEED-labelled seed counts for cloud-init (the label is set below).
-cat > "$mnt/root/etc/cloud/cloud.cfg.d/99-e1-seed.cfg" << 'EOF'
+# SMOKE_PIN=no leaves that out: the control run, to see whether the decoy is
+# taken when nothing keeps it out.
+pin=${SMOKE_PIN:-yes}
+if [ "$pin" = yes ]; then
+    cat > "$mnt/root/etc/cloud/cloud.cfg.d/99-e1-seed.cfg" << 'EOF'
 datasource:
   NoCloud:
     fs_label: E1SEED
 EOF
+fi
 
 umount "$mnt/esp" "$mnt/root"
 
-read -r start size < <(part_range 1)
-espdev=$(losetup -f --show -o $((start * 512)) --sizelimit $((size * 512)) "$work/disk.img")
-fatlabel "$espdev" E1SEED
-losetup -d "$espdev"
+if [ "$pin" = yes ]; then
+    read -r start size < <(part_range 1)
+    espdev=$(losetup -f --show -o $((start * 512)) --sizelimit $((size * 512)) "$work/disk.img")
+    fatlabel "$espdev" E1SEED
+    losetup -d "$espdev"
+fi
 
 # The decoy: what the production NVMe's seed partition looks like to cloud-init.
 truncate -s 32M "$work/decoy.img"
 mkfs.vfat -n CIDATA "$work/decoy.img" > /dev/null
 mkdir "$mnt/decoy"
 mount -o loop "$work/decoy.img" "$mnt/decoy"
-printf '#cloud-config\nruncmd:\n  - [ touch, /etc/decoy-seed-was-used ]\n' > "$mnt/decoy/user-data"
+# It carries the test script too, so that a guest that takes it still reports.
+{ echo '#cloud-config'; smoke_block; echo '  - [ touch, /etc/decoy-seed-was-used ]'; } > "$mnt/decoy/user-data"
 printf 'instance-id: decoy\n' > "$mnt/decoy/meta-data"
 umount "$mnt/decoy"
 
@@ -234,8 +245,10 @@ else
     want "systemd did not finish starting (is-system-running is not running or degraded)" 'is-system-running: (running|degraded)'
     want "cloud-init did not finish with status: done" 'cloud-init: rc=0 status: done'
     want "apt-get update failed" 'apt-get-update: rc=0 '
-    want "cloud-init did not use the image's seed (instance-id)" 'instance-id: cloud-image$'
-    want "cloud-init used the decoy CIDATA seed although only E1SEED is allowed" 'decoy seed: not used$'
+    if [ "$pin" = yes ]; then
+        want "cloud-init did not use the image's seed (instance-id)" 'instance-id: cloud-image$'
+        want "cloud-init used the decoy CIDATA seed although only E1SEED is allowed" 'decoy seed: not used$'
+    fi
     want "the test did not get to its end" 'end$'
     grep -aqE '^SMOKE failed units: *$' serial.log || err "failed units: $(sed -n 's/^SMOKE failed units: //p' serial.log)"
     grep -aq '^SMOKE console: ttyAMA0' serial.log || warn "the kernel's console is not ttyAMA0: $(sed -n 's/^SMOKE console: //p' serial.log)"
@@ -247,7 +260,7 @@ cat report
 while IFS= read -r line; do echo "::warning title=smoke::$line"; done < warnings
 while IFS= read -r line; do echo "::error title=smoke::$line"; done < errors
 msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' report)
-echo "::notice title=smoke (QEMU virt)::$msg"
+echo "::notice title=smoke (QEMU virt, pin=$pin)::$msg"
 # The head shows firmware and GRUB, the tail the end of the boot: enough to see where it stopped.
 for part in head tail; do
     msg=$("$part" -n 40 serial.log | cut -c1-200 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
