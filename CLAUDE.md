@@ -79,7 +79,8 @@ dependencies without a reason in the commit message.
 - `packages/u-boot-*`: Debian packaging of U-Boot.
   `u-boot-turing-rk3588` = **mainline** U-Boot v2026.10 + 1 local patch
   (boot order) + Rockchip rkbin blobs (DDR init, BL31).
-- `overlay/boot/firmware`: cloud-init seed copied onto the boot partition.
+- `overlay/boot/firmware`: cloud-init seed, copied onto the ESP (partition 1,
+  label CIDATA, mounted at `/boot/efi`).
 
 ## Turing RK1 facts
 
@@ -106,14 +107,20 @@ Verified on a running RK1 (turingnode2, 2026-10-14) unless marked otherwise.
   exists. `ttyS0` (uart0) is disabled on the RK1: a `console=ttyS0` would
   silence the line and, as a cmdline console, turn off the stdout-path
   fallback. The image therefore sets no `console=` and CI fails if one
-  reaches `extlinux.conf`. Not yet seen on the console; E1 checks
+  appears on GRUB's command line. Not yet seen on the console; E1 checks
   `/proc/cmdline` and `/sys/class/tty/console/active`.
 - **Ubuntu's arm64 `vmlinuz` is an EFI zboot image** (26.04, 7.0.0-38:
   `CONFIG_EFI_ZBOOT=y`, bytes at offset 56 are zero; rootfs-check run
-  38655920188). U-Boot's `booti`, which `extlinux.conf` uses, needs the
-  arm64 Image magic there, so a `u-boot-menu`/extlinux image does not boot
-  this kernel. Read from U-Boot v2026.10 source, not seen on the console.
-  The boot path is an open decision (`docs/ROADMAP.md`, B2).
+  38655920188). U-Boot's `booti`, which extlinux uses, needs the arm64
+  Image magic there, so extlinux cannot boot this kernel. The image boots
+  by UEFI instead: U-Boot's distro boot runs `efi/boot/bootaa64.efi` (GRUB)
+  from the ESP, partition 1, and `flash-kernel` (used only for that) links
+  `/boot/dtb-<kver>` to the kernel's own `rk3588-turing-rk1.dtb`, which
+  GRUB's `10_linux` loads with `devicetree`, so the kernel gets Ubuntu's DTB
+  and not the one built into U-Boot (2024.01's has no GPU or NPU nodes).
+  Proven in CI up to `grub.cfg` (`docs/ROADMAP.md`, B2); U-Boot running
+  `bootaa64.efi` and the DTB reaching the kernel are for E1. Read from
+  U-Boot v2026.10 source, not seen on the console.
 - Mainline v7.0's RK1 device tree already enables the GPU and the three NPU
   cores, and the base dtsi leaves the video decoders enabled; what is
   missing is userspace and display (`docs/ROADMAP.md`, F1-F4).
