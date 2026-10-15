@@ -114,7 +114,7 @@ jobs:
             done
           done
           # extlinux.conf starts the kernel with U-Boot's booti, which only
-          # takes an arm64 Image (magic "ARMd" at offset 56). Ubuntu's
+          # takes an arm64 Image (magic "ARM\x64" at offset 56). Ubuntu's
           # vmlinuz is an EFI zboot image, which has none (rootfs-check).
           : > ../warnings
           for k in $kver; do

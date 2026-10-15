@@ -102,6 +102,12 @@ Verified on a running RK1 (turingnode2, 2026-10-14) unless marked otherwise.
   it should be `ttyS9` there too, not the `ttyS0` that Armbian's board
   config and this repo's oracular hook use. Read from source, not yet seen
   on the console; Ubuntu's `SERIAL_8250_NR_UARTS` must also allow line 9.
+- **Ubuntu's arm64 `vmlinuz` is an EFI zboot image** (26.04, 7.0.0-38:
+  `CONFIG_EFI_ZBOOT=y`, bytes at offset 56 are zero; rootfs-check run
+  38655920188). U-Boot's `booti`, which `extlinux.conf` uses, needs the
+  arm64 Image magic there, so a `u-boot-menu`/extlinux image does not boot
+  this kernel. Read from U-Boot v2026.10 source, not seen on the console.
+  The boot path is an open decision (`docs/ROADMAP.md`, B2).
 - Mainline v7.0's RK1 device tree already enables the GPU and the three NPU
   cores, and the base dtsi leaves the video decoders enabled; what is
   missing is userspace and display (`docs/ROADMAP.md`, F1-F4).

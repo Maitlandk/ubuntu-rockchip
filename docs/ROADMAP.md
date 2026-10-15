@@ -104,7 +104,7 @@ commits; nothing new is added here.
   loader package, no package outside the archive; sources are
   `archive.ubuntu.com` and `security.ubuntu.com`, which served arm64).
   B3: `build-image.sh`'s desktop branch is dead.
-- 📋 **B2. Boot configuration that survives `apt upgrade`** (M, after B1).
+- ⏳ **B2. Boot configuration that survives `apt upgrade`** (M, after B1).
   The image already runs `u-boot-update` (package `u-boot-menu`), which
   writes `/boot/extlinux/extlinux.conf` and re-runs from the kernel's
   postinst hooks. Point it at Ubuntu's DTB directory (above), set the
@@ -112,12 +112,95 @@ commits; nothing new is added here.
   mainline is unverified, see CLAUDE.md), drop the cgroup-v1 cmdline if
   present. Done when installing a second kernel package in the chroot
   regenerates `extlinux.conf` with both entries.
-- 📋 **B3. Image layout** (M, after B2). `scripts/build-image.sh` gives the
+  *Half done 2026-10-14; waiting on an owner decision.* The literal done
+  criterion is met: `u-boot-menu` 4.2.4ubuntu2 (main) is installed by
+  `config-image.sh` before the kernel, and installing the older
+  `linux-image-7.0.0-14-generic` on top of `7.0.0-38` in the chroot
+  rewrote `extlinux.conf` with both kernels (`l0`/`l0r`, `l1`/`l1r`), each
+  with `linux`, `initrd` and `fdtdir /lib/firmware/<kver>/device-tree/`
+  (run 38655562308 of `rootfs-check.yml`). No configuration was needed: the
+  4.2.4 defaults already use that DTB directory, take `root=` from
+  `/etc/fstab` (the image build rewrites it with the root UUID and re-runs
+  `u-boot-update`; checked in the built image, run 38656041251) and read
+  `/etc/kernel/cmdline`, which we do not create, so there is no
+  cgroup-v1 argument. U-Boot's `fdtfile` (`rockchip/rk3588-turing-rk1.dtb`,
+  the board defconfig's `CONFIG_DEFAULT_FDT_FILE`) fits under that
+  `fdtdir`. The command line is `ro earlycon`, no `console=`: the kernel
+  then takes its console from the DT's `stdout-path` (`serial9`), so it
+  cannot contradict it; whether to add `console=ttyS9,115200n8` is left to
+  the serial-console finding (see the session log).
+
+  **The finding that stops B2: this image cannot boot with extlinux.**
+  Ubuntu 26.04's arm64 `vmlinuz` is an EFI *zboot* image, not an arm64
+  `Image`: `CONFIG_EFI_ZBOOT=y`, `CONFIG_KERNEL_ZSTD=y`, 23.8 MB, first
+  bytes `4d 5a 00 00` ("MZ"), bytes at offset 56 all zero (run
+  38655920188; `booti` wants the `ARM\x64` magic, bytes `41 52 4d 64`,
+  at offset 56). `extlinux.conf` makes U-Boot's pxe code
+  run `booti` for arm64 (`boot/pxe_utils.c`, v2026.10), and `booti_setup()`
+  (`arch/arm/lib/image.c`) prints "Bad Linux ARM64 Image magic!" and fails
+  on a missing magic. Nothing in U-Boot v2026.10's pxe, booti or bootm code
+  handles zboot, and Ubuntu's `flash-kernel` 3.110ubuntu2 has no zboot
+  support either. So `u-boot-menu` + `extlinux.conf` + stock `vmlinuz`
+  does not boot. Not run on hardware (the prediction is from the sources above); E1 can confirm it
+  on the console in one line (`ext4load` the file, `booti`).
+
+  Options, for the owner to choose before more is built on this:
+  1. **UEFI boot, the way Ubuntu boots any arm64 machine.** Install
+     `grub-efi-arm64` (+ `grub-efi-arm64-bin`) and `grub-install
+     --removable --no-nvram` into a FAT ESP; mainline U-Boot's distro boot
+     already loads `efi/boot/bootaa64.efi` from a bootable partition and
+     runs it with `bootefi` (`include/config_distro_bootcmd.h`, which also
+     loads `${fdtfile}` from `/`, `/dtb/` or `/dtb/current/` of that
+     partition if one is there, so Ubuntu's DTB could be supplied),
+     GRUB loads the zboot kernel through its EFI stub, and the device tree
+     is the one embedded in U-Boot (mainline `dts/upstream`), handed over
+     through the EFI configuration table. Everything is archive packages
+     and survives `apt upgrade` (GRUB's own kernel hooks); no `u-boot-menu`,
+     no `/lib/firmware/<kver>/device-tree` use. Costs: the image needs an
+     ESP of 100+ MiB (the 4 MiB CIDATA partition cannot hold GRUB; the seed
+     moves to another partition or to `/boot/firmware`), `grub-efi-arm64`
+     and its recommends come back into the image (B1 left them out because
+     of flash-kernel), and the kernel runs on U-Boot's DT rather than
+     Ubuntu's `rk3588-turing-rk1.dtb`, which must then be the one tested.
+  2. **Keep extlinux and unpack the kernel.** A kernel `postinst.d` hook
+     writes the zstd payload of `vmlinuz` (offset and size are in the zboot
+     header at bytes 8-15) to `/boot/Image-<kver>` and a second hook points
+     `extlinux.conf` at it. Roughly 25 lines of our own shell, a copy of
+     every kernel in `/boot`, and a workaround whose bug is that Ubuntu's
+     arm64 kernel cannot be started by U-Boot's extlinux (to file against
+     `u-boot-menu`/`linux`, rule 6). Keeps B3's layout as built.
+  Recommendation: option 1, because it is what stock Ubuntu does on
+  arm64 and has no hook of ours to carry. It reverses part of B1/B3, so it
+  is a separate task, not part of this one.
+- ✅ **B3. Image layout** (M, after B2). `scripts/build-image.sh` gives the
   ext4 root partition the EFI System Partition type GUID and the 4 MiB
   CIDATA partition the basic-data type. Find out why before changing it
   (rule 6). Add an output for the RK1 eMMC test: boot and root filesystem
   images that are written into existing partitions, leaving the first
   16 MiB (boot loader) untouched.
+  *Done 2026-10-14, for the extlinux layout (see B2).* Why the root
+  partition was an ESP: U-Boot's distro boot lists the partitions to
+  search with `part list ... -bootable`, falls back to partition 1 alone
+  when none qualifies, and a GPT partition counts as bootable if it has
+  the legacy-BIOS-bootable attribute **or the ESP type** (v2026.10
+  `include/config_distro_bootcmd.h`, `cmd/part.c`, `disk/part_efi.c`
+  `get_bootable()`). 1207608 ("migrate to extlinux") set the ESP type on
+  the ext4 root so U-Boot would scan it, instead of the CIDATA vfat
+  partition 1. That was a workaround for the missing attribute; the root
+  now has type Linux filesystem plus the attribute, CIDATA keeps basic
+  data (cloud-init finds it by label). The built image (run 38656041251):
+  GPT p1 `EBD0A0A2` (basic data) attributes 0, p2 `0FC63DAF` (Linux
+  filesystem) attributes `4`, U-Boot SPL 2026.10 at sector 64. This is
+  verified in the image and from U-Boot's source, not on hardware. The
+  desktop layout in `build-image.sh` is gone. New outputs next to the disk
+  image: `<name>.cidata.img.xz` (4 MiB vfat, the NoCloud seed) and
+  `<name>.root.img.xz` (ext4 with `/boot`; 4.3 GB, 2.6 GB used, grows by
+  `x-systemd.growfs`); neither covers anything below the partition start.
+  For E1: the existing eMMC partitions will not necessarily be marked
+  bootable, in which case U-Boot's scan tries partition 1 only. Boot by
+  hand with `setenv distro_bootpart 2; run bootcmd_mmc0` (that variable
+  short-circuits the list, same header), which changes nothing on the
+  eMMC. If B2 moves to UEFI the layout changes again.
 
 ## C. U-Boot
 
@@ -154,10 +237,18 @@ once is two variables.
 
 ## D. CI
 
-- 📋 **D1. Image build workflow** (M, after A1-A3 and B1-B2). Replace
+- ✅ **D1. Image build workflow** (M, after A1-A3 and B1-B2). Replace
   `build.yml`: build the RK1 26.04 server image natively on
   `ubuntu-24.04-arm`, upload it, publish size, sha256, kernel version and
   `extlinux.conf` as annotations (see "Reading CI results" in CLAUDE.md).
+  *Done 2026-10-14.* `build.yml` calls `u-boot-build.yml` (now also
+  `workflow_call`, and it uploads the .deb), then builds on
+  `ubuntu-24.04-arm` with `build.sh`; it takes 13 minutes, uploads the
+  three images as one artifact (2.36 GB) and reports sizes, sha256,
+  partition table, boot loader, kernel, root UUID, fstab, `extlinux.conf`
+  and the CIDATA contents as one annotation (run 38656041251 ✅, first
+  try). It runs on pushes to the build inputs; `workflow_dispatch` is
+  there too. It also reports the zboot problem of B2 as a warning.
 - 📋 **D2. QEMU smoke test** (M, after D1). The RK3588 cannot be emulated,
   but the image's userspace can: boot its kernel, initrd and root
   filesystem on `qemu-system-aarch64 -M virt` and check that systemd
@@ -515,3 +606,11 @@ CI run · result · cost if known · next.
   failed: tag not on master; second: shellcheck) · U-Boot v2026.10, patches
   0002/0003 dropped as upstream, 0001 kept, TF-A noted · cost not read ·
   next: E1 can use the CI package; BL31 swap is a separate hardware test.
+- 2026-10-14 · B2 (half), B3, D1 · Sonnet · 74b25c4..HEAD · rootfs-check
+  38655562308 ✅ (second kernel regenerates extlinux.conf), 38655920188 ✅
+  (vmlinuz is EFI zboot), build 38656041251 ✅ (first try, 13 min) · B3 and
+  D1 done; B2 stopped: Ubuntu's `vmlinuz` is an EFI zboot image that U-Boot's
+  `booti` rejects, so extlinux cannot boot it, owner to choose between UEFI
+  boot via GRUB and unpacking the kernel · console left at the DT's
+  `stdout-path` (no `console=`) · cost not read (no cost API in the session,
+  only plan percentages) · next: decide B2's boot path; D2 and E1 wait on it.
