@@ -74,6 +74,11 @@ jobs:
           . /w/config/boards/turing-rk1.sh
           config_image_hook__turing-rk1 /
           echo "grub-efi-arm64 grub2/update_nvram boolean false" | debconf-set-selections
+          if ! apt-get -y install --no-install-recommends linux-generic; then
+            echo "apt-get install linux-generic failed, see the job log" >> "$e"
+            exit 0
+          fi
+          # After the kernel: flash-kernel's postinst fails silently with FK_FORCE=yes when no kernel is installed.
           # The tail of apt's output goes into the error, as job logs are not readable without a sign-in.
           if ! apt-get -y -o Dpkg::Options::=--force-confold install --no-install-recommends flash-kernel grub-efi-arm64 > /w/apt.log 2>&1; then
             echo "installing flash-kernel and grub-efi-arm64 failed: $(tail -n 25 /w/apt.log | tr '\n' '|')" >> "$e"
@@ -82,10 +87,6 @@ jobs:
           for p in flash-kernel grub-efi-arm64 grub2-common; do
             echo "$p: $(dpkg-query -W -f '${Version}' "$p")" >> "$r"
           done
-          if ! apt-get -y install --no-install-recommends linux-generic; then
-            echo "apt-get install linux-generic failed, see the job log" >> "$e"
-            exit 0
-          fi
           kver=$(dpkg-query -W -f '${Depends}' linux-image-generic | sed -n 's/^linux-image-\([^ ,]*\).*/\1/p')
           echo "kernel: $kver" >> "$r"
           dtb=/usr/lib/firmware/$kver/device-tree/rockchip/rk3588-turing-rk1.dtb

@@ -114,6 +114,12 @@ if [[ $(type -t config_image_hook__"${BOARD}") == function ]]; then
     config_image_hook__"${BOARD}" "${chroot_dir}" "${overlay_dir}" "${SUITE}"
 fi 
 
+# Ubuntu's generic kernel. Without its recommends (flash-kernel |
+# grub-efi-arm64): those are installed below, on purpose, and after the
+# kernel, because flash-kernel's postinst exits silently, under FK_FORCE,
+# when no kernel is installed.
+chroot $chroot_dir apt-get -y install --no-install-recommends linux-generic
+
 # How the board boots. Ubuntu's arm64 kernel is an EFI zboot image, which
 # U-Boot's extlinux support (booti) cannot start, so this is stock Ubuntu
 # UEFI boot: U-Boot's distro boot runs EFI/BOOT/BOOTAA64.EFI from the ESP,
@@ -125,15 +131,12 @@ fi
 # or removal it copies the DTB from /lib/firmware/<kver>/device-tree/ to
 # /boot/dtbs/<kver>/ and links /boot/dtb-<kver>, which GRUB's 10_linux
 # turns into a `devicetree` line, so the kernel gets Ubuntu's DTB and not
-# the one built into U-Boot. It needs a database entry for the board,
-# which the hook wrote; --force-confold keeps it. Without recommends:
-# u-boot-tools is for boot scripts we do not use.
+# the one built into U-Boot. Its postinst does that for the kernel above.
+# It needs a database entry for the board, which the hook wrote;
+# --force-confold keeps it. Without recommends: u-boot-tools is for boot
+# scripts we do not use.
 echo "grub-efi-arm64 grub2/update_nvram boolean false" | chroot $chroot_dir debconf-set-selections
 chroot $chroot_dir apt-get -y -o Dpkg::Options::=--force-confold install --no-install-recommends flash-kernel grub-efi-arm64
-
-# Ubuntu's generic kernel. Without its recommends: flash-kernel | grub-efi-arm64
-# are installed above, on purpose.
-chroot $chroot_dir apt-get -y install --no-install-recommends linux-generic
 
 # Install U-Boot
 cp "${uboot_package}" ${chroot_dir}/tmp/
