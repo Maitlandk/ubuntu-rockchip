@@ -1,0 +1,88 @@
+From 8112e39c312b14850a8f0df1e3859aaa36c7c0f4 Mon Sep 17 00:00:00 2001
+From: Maitlandk <maitland@scootnetworks.com>
+Date: Wed, 14 Oct 2026 19:49:38 -0700
+Subject: [PATCH] arm64: dts: rockchip: Enable HDMI0 on Turing RK1
+
+The Turing RK1 brings one HDMI transmitter out on its 260-pin SO-DIMM
+edge connector: the TMDS clock and data pairs on pins 63-83, and CEC,
+HPD and DDC on pins 94-100, where the Jetson SO-DIMM modules it is
+pin-compatible with have their HDMI signals. The Turing Pi 2 routes
+them to the HDMI connector of its first node. The board device tree
+leaves the display pipeline disabled, so nothing drives that port with
+a mainline kernel.
+
+Enable the VOP, HDMI0 and its HDPTX PHY, and connect HDMI0 to video
+port 0, as other RK3588 boards using HDMI0 do.
+
+The default HDMI0 pin configuration in rk3588-base.dtsi is the only
+one the module leaves free: the hdmim1 CEC, SCL and SDA balls
+(GPIO0_D1, GPIO0_D5, GPIO0_D4) carry i2c0 and i2c1, which the RK1
+device tree uses for its regulators, and the hdmim1 HPD and hdmim2
+SCL/SDA balls (GPIO3_D4, GPIO3_C7, GPIO3_D0) are brought out to the
+SO-DIMM as GPIOs. The downstream device tree of the vendor's
+Rockchip-BSP-based images for this module also uses HDMI0 with these
+pins.
+
+No frl-enable-gpios is given, as no FRL enable line is documented for
+the module, so the controller runs in TMDS mode only.
+
+No hdmi-connector node is added. This .dts describes the RK1 on a
+carrier that is no more than a backplane, and the connector, where
+there is one, is on the carrier; dw-hdmi-qp does hotplug detection
+and reads the EDID itself.
+
+Signed-off-by: Maitlandk <maitland@scootnetworks.com>
+---
+ .../boot/dts/rockchip/rk3588-turing-rk1.dts   | 30 +++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588-turing-rk1.dts b/arch/arm64/boot/dts/rockchip/rk3588-turing-rk1.dts
+index 7bcad28..065d692 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588-turing-rk1.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3588-turing-rk1.dts
+@@ -9,6 +9,7 @@
+  */
+ 
+ /dts-v1/;
++#include <dt-bindings/soc/rockchip,vop2.h>
+ #include "rk3588-turing-rk1.dtsi"
+ 
+ / {
+@@ -19,3 +20,32 @@
+ 		stdout-path = "serial9:115200n8";
+ 	};
+ };
++
++&hdmi0 {
++	status = "okay";
++};
++
++&hdmi0_in {
++	hdmi0_in_vp0: endpoint {
++		remote-endpoint = <&vp0_out_hdmi0>;
++	};
++};
++
++&hdptxphy0 {
++	status = "okay";
++};
++
++&vop {
++	status = "okay";
++};
++
++&vop_mmu {
++	status = "okay";
++};
++
++&vp0 {
++	vp0_out_hdmi0: endpoint@ROCKCHIP_VOP2_EP_HDMI0 {
++		reg = <ROCKCHIP_VOP2_EP_HDMI0>;
++		remote-endpoint = <&hdmi0_in_vp0>;
++	};
++};
+
+base-commit: 0fcb05b72344f40806cbe810de8872f1698bf053
+-- 
+2.55.0.windows.3
+
