@@ -68,75 +68,110 @@ jobs:
         run: |
           set -eu
           cd images
-          sudo mkdir -p /mnt/chk/root /mnt/chk/cidata
-          disk=$(ls ./*.img.xz | grep -v -e '\.cidata\.' -e '\.root\.'); cidata=$(ls ./*.cidata.img.xz); root=$(ls ./*.root.img.xz)
-          : > ../report; : > ../errors
+          sudo mkdir -p /mnt/chk/root /mnt/chk/esp
+          disk=$(ls ./*.img.xz | grep -v -e '\.esp\.' -e '\.root\.'); esp=$(ls ./*.esp.img.xz); root=$(ls ./*.root.img.xz)
+          : > ../report; : > ../errors; : > ../warnings
           {
-            for f in "$disk" "$cidata" "$root"; do
+            for f in "$disk" "$esp" "$root"; do
               echo "$(basename "$f"): $(stat -c %s "$f") bytes xz, sha256 $(sha256sum "$f" | cut -d' ' -f1)"
             done
             echo
           } >> ../report
 
-          # Partition table and boot loader, from the disk image.
+          # Partition table and boot loader, from the disk image. U-Boot's
+          # distro boot searches the ESP-typed partition 1 for
+          # EFI/BOOT/BOOTAA64.EFI; the root is an ordinary Linux filesystem.
           xz -dc "$disk" | dd of=/tmp/disk.img bs=1M conv=sparse status=none
           {
             echo "partition table:"
             sgdisk -p /tmp/disk.img 2>&1 | sed -n '/^Number/,$p'
             for n in 1 2; do
-              sgdisk -i "$n" /tmp/disk.img 2>&1 | grep -E 'Partition GUID code|Attribute flags|Partition name'
+              sgdisk -i "$n" /tmp/disk.img 2>&1 | grep -E 'Partition GUID code|Attribute flags'
             done
             echo "boot loader (sector 64): $(dd if=/tmp/disk.img bs=512 skip=64 count=8192 2>/dev/null | strings -n 8 | grep -m1 'U-Boot SPL' || echo none)"
           } >> ../report
-          sgdisk -i 2 /tmp/disk.img 2>&1 | grep -q 'Attribute flags: 0000000000000004' ||
-            echo "root partition is not marked legacy BIOS bootable" >> ../errors
-          sgdisk -i 2 /tmp/disk.img 2>&1 | grep -q 'C12A7328' &&
-            echo "root partition still has the EFI System Partition type" >> ../errors
+          sgdisk -i 1 /tmp/disk.img 2>&1 | grep -q 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B' ||
+            echo "partition 1 is not an EFI System Partition" >> ../errors
+          sgdisk -i 2 /tmp/disk.img 2>&1 | grep -q '0FC63DAF-8483-4772-8E79-3D69D8477DE4' ||
+            echo "partition 2 is not Linux filesystem data" >> ../errors
           grep -q 'U-Boot SPL 2026' ../report || echo "no U-Boot 2026 SPL at sector 64" >> ../errors
 
-          # The root filesystem image, mounted.
-          xz -dc "$root" > /tmp/root.img
-          sudo mount -o loop,ro /tmp/root.img /mnt/chk/root
-          ext=/mnt/chk/root/boot/extlinux/extlinux.conf
-          kver=$(ls /mnt/chk/root/boot/vmlinuz-* | sed 's,.*/vmlinuz-,,')
-          uuid=$(sudo blkid -s UUID -o value /tmp/root.img)
+          # The ESP image: GRUB for removable media, and the cloud-init seed.
+          xz -dc "$esp" > /tmp/esp.img
+          sudo mount -o loop,ro /tmp/esp.img /mnt/chk/esp
           {
             echo
-            echo "kernel: $(echo $kver)"
+            echo "esp: $(sudo blkid -o export /tmp/esp.img | grep -E '^(TYPE|LABEL|UUID)=' | paste -sd' ')"
+            echo "esp files:"; (cd /mnt/chk/esp && find . -type f -printf '%p %s\n' | sort)
+          } >> ../report
+          for f in user-data meta-data network-config EFI/BOOT/BOOTAA64.EFI; do
+            [ -f "/mnt/chk/esp/$f" ] || echo "no $f on the ESP" >> ../errors
+          done
+          sudo umount /mnt/chk/esp
+
+          # The root filesystem image, read-only.
+          xz -dc "$root" > /tmp/root.img
+          sudo mount -o loop,ro /tmp/root.img /mnt/chk/root
+          uuid=$(sudo blkid -s UUID -o value /tmp/root.img)
+          cfg=/mnt/chk/root/boot/grub/grub.cfg
+          kvers=$(ls /mnt/chk/root/boot/vmlinuz-* | sed 's,.*/vmlinuz-,,')
+          {
+            echo
+            echo "kernel: $(echo $kvers)"
             echo "root filesystem: $(sudo blkid -o value -s TYPE /tmp/root.img) UUID $uuid, $(df -h --output=size,used /mnt/chk/root | tail -n1 | tr -s ' ')"
             echo "fstab: $(grep -v '^#' /mnt/chk/root/etc/fstab | tr -s ' ' | paste -sd';')"
-            echo "extlinux.conf:"; cat "$ext"
+            echo "grub.cfg linux/initrd/devicetree lines:"
+            sudo grep -E '^\s+(linux|initrd|devicetree)\s' "$cfg" | sort -u
           } >> ../report
-          grep -q "root=UUID=$uuid" "$ext" || echo "extlinux.conf does not point at root=UUID=$uuid" >> ../errors
-          # uart0 is disabled on the RK1; the console is ttyS9 from the DT's stdout-path.
-          ! grep -q 'console=ttyS0' "$ext" || echo "extlinux.conf has console=ttyS0" >> ../errors
-          for k in $kver; do
-            for f in "boot/vmlinuz-$k" "boot/initrd.img-$k" "lib/firmware/$k/device-tree/rockchip/rk3588-turing-rk1.dtb"; do
-              [ -f "/mnt/chk/root/$f" ] || echo "no /$f in the root image" >> ../errors
+          grep -q "UUID=$uuid /" /mnt/chk/root/etc/fstab || echo "fstab has no root UUID=$uuid" >> ../errors
+          grep -q ' /boot/efi ' /mnt/chk/root/etc/fstab || echo "fstab has no /boot/efi" >> ../errors
+          sudo grep -q "root=UUID=$uuid" "$cfg" || echo "grub.cfg does not point at root=UUID=$uuid" >> ../errors
+          ! sudo grep -q 'GRUB_FORCE_PARTUUID\|PARTUUID=' "$cfg" || echo "grub.cfg uses a PARTUUID" >> ../errors
+          ! sudo grep -oE 'console=[^ ]*' "$cfg" | grep -v '^console=ttyS9' | grep -q . || echo "grub.cfg has a console= other than ttyS9" >> ../errors
+          for k in $kvers; do
+            for f in "boot/vmlinuz-$k" "boot/initrd.img-$k" "boot/dtb-$k"; do
+              [ -e "/mnt/chk/root/$f" ] || echo "no /$f in the root image" >> ../errors
             done
+            sudo cmp -s "/mnt/chk/root/boot/dtb-$k" "/mnt/chk/root/lib/firmware/$k/device-tree/rockchip/rk3588-turing-rk1.dtb" ||
+              echo "/boot/dtb-$k is not the kernel's rk3588-turing-rk1.dtb" >> ../errors
+            sudo grep -q "^\s*devicetree\s*/boot/dtb-$k\$" "$cfg" || echo "grub.cfg does not load /boot/dtb-$k" >> ../errors
           done
-          # extlinux.conf starts the kernel with U-Boot's booti, which only
-          # takes an arm64 Image (magic "ARM\x64" at offset 56). Ubuntu's
-          # vmlinuz is an EFI zboot image, which has none (rootfs-check).
-          : > ../warnings
-          for k in $kver; do
-            magic=$(sudo od -A n -t x1 -j 56 -N 4 "/mnt/chk/root/boot/vmlinuz-$k" | tr -d ' ')
-            echo "vmlinuz-$k: first bytes $(sudo od -A n -t x1 -N 4 "/mnt/chk/root/boot/vmlinuz-$k"), offset 56: $magic" >> ../report
-            [ "$magic" = 41524d64 ] ||
-              echo "vmlinuz-$k has no arm64 Image magic: U-Boot's booti, which extlinux.conf uses, rejects it" >> ../warnings
-          done
-          grep -rqs 'unified_cgroup_hierarchy' "$ext" /mnt/chk/root/etc/default /mnt/chk/root/etc/kernel 2>/dev/null &&
-            echo "cgroup v1 on the kernel command line" >> ../errors
           sudo umount /mnt/chk/root
 
-          # The seed partition image.
-          xz -dc "$cidata" > /tmp/cidata.img
-          sudo mount -o loop,ro /tmp/cidata.img /mnt/chk/cidata
-          echo "cidata: $(sudo blkid -o export /tmp/cidata.img | grep -E '^(TYPE|LABEL)=' | paste -sd' '), $(ls /mnt/chk/cidata | paste -sd' ')" >> ../report
-          for f in user-data meta-data network-config; do
-            [ -f "/mnt/chk/cidata/$f" ] || echo "no $f on the CIDATA partition" >> ../errors
-          done
-          sudo umount /mnt/chk/cidata
+          # The same root image with a second kernel installed in a chroot, as
+          # an apt upgrade on the board would: grub.cfg must then load that
+          # kernel's DTB too, and drop it again when the kernel is removed.
+          sudo mkdir -p /mnt/chk/rw
+          sudo mount -o loop /tmp/root.img /mnt/chk/rw
+          sudo mount -o loop /tmp/esp.img /mnt/chk/rw/boot/efi
+          sudo mount --bind /dev /mnt/chk/rw/dev
+          sudo mount -t proc proc /mnt/chk/rw/proc
+          sudo mount -t sysfs sysfs /mnt/chk/rw/sys
+          sudo cp /etc/resolv.conf /mnt/chk/rw/etc/resolv.conf
+          rw() { sudo chroot /mnt/chk/rw "$@"; }
+          sudo mount -t tmpfs none /mnt/chk/rw/var/lib/apt/lists
+          rw apt-get -qq update
+          kver=$(echo $kvers | cut -d' ' -f1)
+          other=$(rw apt-cache search --names-only '^linux-image-[0-9.]+-[0-9]+-generic$' |
+                    sed 's/^linux-image-\(.*\)-generic .*/\1/' | grep -vxF "${kver%-generic}" | sort -V | head -n1)
+          if [ -z "$other" ]; then
+            echo "no second linux-image-*-generic in the archive to install" >> ../errors
+          elif ! rw env DEBIAN_FRONTEND=noninteractive apt-get -y -qq install --no-install-recommends "linux-image-$other-generic"; then
+            echo "installing linux-image-$other-generic in the image failed" >> ../errors
+          else
+            for k in $kvers "$other-generic"; do
+              sudo grep -q "^\s*devicetree\s*/boot/dtb-$k\$" /mnt/chk/rw/boot/grub/grub.cfg ||
+                echo "after installing $other-generic, grub.cfg does not load /boot/dtb-$k" >> ../errors
+            done
+            echo "after installing linux-image-$other-generic, grub.cfg:" >> ../report
+            sudo grep -E '^\s+(linux|initrd|devicetree)\s' /mnt/chk/rw/boot/grub/grub.cfg | sort -u >> ../report
+            rw env DEBIAN_FRONTEND=noninteractive apt-get -y -qq purge "linux-image-$other-generic" "linux-modules-$other-generic" ||
+              echo "removing linux-image-$other-generic failed" >> ../errors
+            ! sudo grep -q "dtb-$other-generic" /mnt/chk/rw/boot/grub/grub.cfg ||
+              echo "after removing $other-generic, grub.cfg still mentions its DTB" >> ../errors
+          fi
+          echo "ESP after the kernel changes: $(cd /mnt/chk/rw/boot/efi && find . -type f | sort | paste -sd' ')" >> ../report
+          sudo umount /mnt/chk/rw/var/lib/apt/lists /mnt/chk/rw/sys /mnt/chk/rw/proc /mnt/chk/rw/dev /mnt/chk/rw/boot/efi /mnt/chk/rw
 
           cd ..
           cat report
@@ -144,10 +179,6 @@ jobs:
             [ -n "$line" ] || continue
             echo "::error title=image::$line"
           done < errors
-          while IFS= read -r line; do
-            [ -n "$line" ] || continue
-            echo "::warning title=image::$line"
-          done < warnings
           msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' report)
           echo "::notice title=image ($BOARD $SUITE $FLAVOR)::$msg"
           test ! -s errors
