@@ -49,6 +49,9 @@ trap cleanup EXIT
 
 xz -dc "$img_xz" | dd of="$work/disk.img" bs=1M conv=sparse status=none
 loop=$(losetup -f --show -P "$work/disk.img")
+# The partition nodes appear a moment after losetup returns.
+for _ in $(seq 30); do [ -b "${loop}p2" ] && break; sleep 1; done
+[ -b "${loop}p2" ] || { echo "::error title=smoke::no partition nodes for $loop: $(echo "${loop}"*)"; exit 1; }
 mount "${loop}p1" "$mnt/esp"
 mount "${loop}p2" "$mnt/root"
 
