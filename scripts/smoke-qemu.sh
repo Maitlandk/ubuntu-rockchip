@@ -63,7 +63,10 @@ part_range() { # <n>: start and size of partition n, in sectors
 mount_part() { # <n> <mount point>
     local start size
     read -r start size < <(part_range "$1")
-    mount -o "loop,offset=$((start * 512)),sizelimit=$((size * 512))" "$work/disk.img" "$2"
+    if ! mount -o "loop,offset=$((start * 512)),sizelimit=$((size * 512))" "$work/disk.img" "$2" 2> "$work/mount.err"; then
+        echo "::error title=smoke::mount of partition $1 (start $start, size $size sectors) failed: $(tr '\n' '|' < "$work/mount.err") image $(stat -c %s "$work/disk.img") bytes; $(sgdisk -i "$1" "$work/disk.img" 2>&1 | grep -E 'GUID code|First|Last' | tr '\n' '|') dmesg: $(dmesg 2>&1 | tail -n 4 | tr '\n' '|')"
+        exit 1
+    fi
 }
 mount_part 1 "$mnt/esp"
 mount_part 2 "$mnt/root"
