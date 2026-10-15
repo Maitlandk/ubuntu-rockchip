@@ -55,8 +55,7 @@ on_exit() {
     local rc=$?
     set +x
     if [ "$rc" -ne 0 ]; then
-        echo "::error title=smoke::script exited $rc; last commands: $(tail -n 12 "$out/trace" | cut -c1-220 | tr '
-' '|')"
+        echo "::error title=smoke::script exited $rc; last commands: $(tail -n 12 "$out/trace" | cut -c1-220 | paste -sd'|')"
     fi
     mountpoint -q "$mnt/esp" && umount "$mnt/esp"
     mountpoint -q "$mnt/root" && umount "$mnt/root"
