@@ -72,5 +72,8 @@ jobs:
 
       - name: Boot it
         run: |
-          disk=$(ls images/*.img.xz | grep -v -e '\.esp\.' -e '\.root\.')
+          echo "::notice title=smoke::downloaded: $(find images -type f -printf '%P %s
+' | paste -sd' ')"
+          disk=$(find images -name '*.img.xz' ! -name '*.esp.*' ! -name '*.root.*')
+          [ -n "$disk" ] || { echo "::error title=smoke::no disk image among the downloaded files"; exit 1; }
           sudo SMOKE_OUT="$PWD/smoke" scripts/smoke-qemu.sh "$disk"

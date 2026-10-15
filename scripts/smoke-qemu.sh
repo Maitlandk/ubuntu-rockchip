@@ -35,6 +35,13 @@ mkdir -p "$out"
 cd "$out"
 : > report; : > errors; : > warnings; : > serial.log
 
+# Job logs are not readable without a sign-in, and a silent exit (set -u, a
+# failing pipeline in a condition) leaves nothing to go on: trace to a file
+# and put its tail into an annotation when the script exits non-zero.
+exec 3> trace
+BASH_XTRACEFD=3
+set -x
+
 # Job logs are not readable without a sign-in: name the failing command in an annotation.
 trap 'echo "::error title=smoke::smoke script failed at line $LINENO: $BASH_COMMAND"' ERR
 
@@ -44,12 +51,18 @@ warn() { echo "$*" >> warnings; }
 work=$(mktemp -d)
 mnt=$work/mnt
 mkdir -p "$mnt/esp" "$mnt/root"
-cleanup() {
+on_exit() {
+    local rc=$?
+    set +x
+    if [ "$rc" -ne 0 ]; then
+        echo "::error title=smoke::script exited $rc; last commands: $(tail -n 12 "$out/trace" | cut -c1-220 | tr '
+' '|')"
+    fi
     mountpoint -q "$mnt/esp" && umount "$mnt/esp"
     mountpoint -q "$mnt/root" && umount "$mnt/root"
     return 0
 }
-trap cleanup EXIT
+trap on_exit EXIT
 
 xz -dc "$img_xz" | dd of="$work/disk.img" bs=1M conv=sparse status=none
 # Mount the two partitions by offset: the runner's udev does not create the
