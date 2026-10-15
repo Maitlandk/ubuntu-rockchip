@@ -38,22 +38,28 @@ warn() { echo "$*" >> warnings; }
 work=$(mktemp -d)
 mnt=$work/mnt
 mkdir -p "$mnt/esp" "$mnt/root"
-loop=
 cleanup() {
     mountpoint -q "$mnt/esp" && umount "$mnt/esp"
     mountpoint -q "$mnt/root" && umount "$mnt/root"
-    [ -z "$loop" ] || losetup -d "$loop"
     return 0
 }
 trap cleanup EXIT
 
 xz -dc "$img_xz" | dd of="$work/disk.img" bs=1M conv=sparse status=none
-loop=$(losetup -f --show -P "$work/disk.img")
-# The partition nodes appear a moment after losetup returns.
-for _ in $(seq 30); do [ -b "${loop}p2" ] && break; sleep 1; done
-[ -b "${loop}p2" ] || { echo "::error title=smoke::no partition nodes for $loop: $(echo "${loop}"*)"; exit 1; }
-mount "${loop}p1" "$mnt/esp"
-mount "${loop}p2" "$mnt/root"
+# Mount the two partitions by offset: the runner's udev does not create the
+# nodes of a loop device's partitions (run 38672788100).
+mount_part() { # <n> <mount point>
+    local start size
+    read -r start size < <(sfdisk -d "$work/disk.img" | awk -v n="$1" '
+        /^\// && ++i == n {
+            match($0, /start= *[0-9]+/); st = substr($0, RSTART + 6, RLENGTH - 6) + 0
+            match($0, /size= *[0-9]+/); sz = substr($0, RSTART + 5, RLENGTH - 5) + 0
+            print st, sz
+        }')
+    mount -o "loop,offset=$((start * 512)),sizelimit=$((size * 512))" "$work/disk.img" "$2"
+}
+mount_part 1 "$mnt/esp"
+mount_part 2 "$mnt/root"
 
 cfg=$mnt/root/boot/grub/grub.cfg
 kvers=
@@ -138,7 +144,6 @@ grep -qE '^\s+devicetree\s' "$cfg" || err "grub.cfg of the image has no devicetr
 sed -i -E '/^\s+devicetree\s/d' "$cfg"
 
 umount "$mnt/esp" "$mnt/root"
-losetup -d "$loop"; loop=
 
 # UEFI firmware as pflash, the disk on virtio, user-mode networking.
 code=/usr/share/AAVMF/AAVMF_CODE.fd
