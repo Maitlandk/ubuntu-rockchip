@@ -1,0 +1,99 @@
+# Does the prepared upstream DT patch pass the kernel's own checks?
+#
+# For each patch in upstream/linux/: fetch torvalds/linux at the patch's
+# base-commit, build rk3588-turing-rk1.dtb with CHECK_DTBS=y W=1 before and
+# after `git am`, and fail on any warning the patch adds. checkpatch.pl
+# --strict runs on the patch too. Results are annotations (see "Reading CI
+# results" in CLAUDE.md). Nothing here goes into an image (rule 2).
+
+name: dtbs check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - upstream/linux/**
+      - .github/workflows/dtbs-check.yml
+
+permissions:
+  contents: read
+
+env:
+  DTB: rockchip/rk3588-turing-rk1.dtb
+
+jobs:
+  dtbs-check:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the tools
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y --no-install-recommends \
+            build-essential bc bison flex libyaml-dev pkg-config python3-venv
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" -q install dtschema yamllint
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch the base commit
+        run: |
+          set -eu
+          patch=$(ls upstream/linux/*.patch)
+          base=$(sed -n 's/^base-commit: //p' $patch | sort -u)
+          test "$(echo "$base" | wc -l)" -eq 1
+          git init -q linux
+          git -C linux fetch -q --depth 1 https://github.com/torvalds/linux "$base"
+          git -C linux checkout -q FETCH_HEAD
+          git -C linux log -1 --format='base: %H %s' | tee base
+
+      - name: Check
+        working-directory: linux
+        run: |
+          # Keep going on failure: the Report step judges, from the
+          # exit statuses recorded here.
+          set +e -u
+          export ARCH=arm64 LC_ALL=C
+          make -s defconfig
+          # Warnings carry dts line numbers, which the patch shifts: drop
+          # them so the same warning before and after compares equal.
+          check() {
+            make -s CHECK_DTBS=y W=1 "$DTB" 2> "$1.log"
+            echo "make exit $?" >> "$1.status"
+            sed -E 's/:[0-9]+\.[0-9]+-[0-9]+(\.[0-9]+)?:/:/g; s/:[0-9]+:/:/g' "$1.log" |
+              grep -iE 'warning|error' | sort -u > "$1.norm"
+          }
+          check before
+          git -c user.name=ci -c user.email=ci@invalid am -q ../upstream/linux/*.patch
+          echo "am exit $?" > am.status
+          check after
+          perl scripts/checkpatch.pl --strict --showfile \
+            ../upstream/linux/*.patch > checkpatch.log 2>&1
+          echo "checkpatch exit $?" > checkpatch.status
+          comm -13 before.norm after.norm > new
+          true
+
+      - name: Report
+        working-directory: linux
+        run: |
+          set -eu
+          enc() { sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g'; }
+          {
+            cat ../base
+            echo "$DTB, CHECK_DTBS=y W=1"
+            cat am.status before.status after.status checkpatch.status
+            echo "warnings before: $(wc -l < before.norm), after: $(wc -l < after.norm), new: $(wc -l < new)"
+            echo "--- new warnings"; cat new
+            echo "--- checkpatch --strict"; tail -n 20 checkpatch.log
+            echo "--- after.log (last 100 lines)"; tail -n 100 after.log
+          } > report
+          cat report
+          echo "::notice title=dtbs check::$(enc < report)"
+          while IFS= read -r w; do
+            echo "::error title=New dtbs warning::$(printf '%s' "$w" | enc)"
+          done < new
+          grep -qx 'am exit 0' am.status
+          grep -qx 'make exit 0' before.status
+          grep -qx 'make exit 0' after.status
+          grep -qx 'checkpatch exit 0' checkpatch.status
+          test ! -s new
