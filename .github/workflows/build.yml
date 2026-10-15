@@ -149,6 +149,8 @@ jobs:
           sudo mount --bind /dev /mnt/chk/rw/dev
           sudo mount -t proc proc /mnt/chk/rw/proc
           sudo mount -t sysfs sysfs /mnt/chk/rw/sys
+          # etc/resolv.conf is a link into /run in the image; this copy is thrown away.
+          sudo rm -f /mnt/chk/rw/etc/resolv.conf
           sudo cp /etc/resolv.conf /mnt/chk/rw/etc/resolv.conf
           rw() { sudo chroot /mnt/chk/rw "$@"; }
           sudo mount -t tmpfs none /mnt/chk/rw/var/lib/apt/lists
