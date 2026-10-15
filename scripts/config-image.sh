@@ -103,24 +103,32 @@ setup_mountpoint $chroot_dir
 chroot $chroot_dir apt-get update
 chroot $chroot_dir apt-get -y upgrade
 
-# u-boot-menu writes /boot/extlinux/extlinux.conf, which U-Boot's distro
-# boot reads, and rewrites it from /etc/kernel/postinst.d and postrm.d
-# whenever a kernel is installed or removed. It goes in first so that the
-# kernel install below already produces the entry. It finds the device
-# tree directory (/lib/firmware/<kver>/device-tree/, where Ubuntu's kernel
-# ships it) and the root device (/etc/fstab) by itself.
-chroot $chroot_dir apt-get -y install --no-install-recommends u-boot-menu
-
-# Ubuntu's generic kernel. Without its recommends: the boot loader one,
-# flash-kernel | grub-efi-arm64, is wrong for a board that U-Boot boots
-# from extlinux.conf, and flash-kernel fails every kernel install on a
-# machine missing from its database, as the RK1 is.
-chroot $chroot_dir apt-get -y install --no-install-recommends linux-generic
-
-# Run config hook to handle board specific changes
+# Run config hook to handle board specific changes: the files below that
+# the boot packages read when they are installed.
 if [[ $(type -t config_image_hook__"${BOARD}") == function ]]; then
     config_image_hook__"${BOARD}" "${chroot_dir}" "${overlay_dir}" "${SUITE}"
 fi 
+
+# How the board boots. Ubuntu's arm64 kernel is an EFI zboot image, which
+# U-Boot's extlinux support (booti) cannot start, so this is stock Ubuntu
+# UEFI boot: U-Boot's distro boot runs EFI/BOOT/BOOTAA64.EFI from the ESP,
+# GRUB loads the kernel through its EFI stub. build-image.sh installs GRUB
+# on the ESP and generates grub.cfg once the real partitions exist; the
+# kernel hooks (zz-update-grub) keep it current after that.
+#
+# flash-kernel is here only for the device tree: on every kernel install
+# or removal it copies the DTB from /lib/firmware/<kver>/device-tree/ to
+# /boot/dtbs/<kver>/ and links /boot/dtb-<kver>, which GRUB's 10_linux
+# turns into a `devicetree` line, so the kernel gets Ubuntu's DTB and not
+# the one built into U-Boot. It needs a database entry for the board,
+# which the hook wrote; --force-confold keeps it. Without recommends:
+# u-boot-tools is for boot scripts we do not use.
+echo "grub-efi-arm64 grub2/update_nvram boolean false" | chroot $chroot_dir debconf-set-selections
+chroot $chroot_dir apt-get -y -o Dpkg::Options::=--force-confold install --no-install-recommends flash-kernel grub-efi-arm64
+
+# Ubuntu's generic kernel. Without its recommends: flash-kernel | grub-efi-arm64
+# are installed above, on purpose.
+chroot $chroot_dir apt-get -y install --no-install-recommends linux-generic
 
 # Install U-Boot
 cp "${uboot_package}" ${chroot_dir}/tmp/
