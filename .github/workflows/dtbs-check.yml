@@ -58,7 +58,7 @@ jobs:
           # Warnings carry dts line numbers, which the patch shifts: drop
           # them so the same warning before and after compares equal.
           check() {
-            make -s CHECK_DTBS=y W=1 "$DTB" 2> "$1.log"
+            make CHECK_DTBS=y W=1 "$DTB" > "$1.out" 2> "$1.log"
             echo "make exit $?" >> "$1.status"
             sed -E 's/:[0-9]+\.[0-9]+-[0-9]+(\.[0-9]+)?:/:/g; s/:[0-9]+:/:/g' "$1.log" |
               grep -iE 'warning|error' | sort -u > "$1.norm"
@@ -82,6 +82,10 @@ jobs:
             cat ../base
             echo "$DTB, CHECK_DTBS=y W=1"
             cat am.status before.status after.status checkpatch.status
+            # Zero warnings only means something if the schema check ran.
+            echo "dt-validate: $(command -v dt-validate) $(dt-validate --version 2>&1)"
+            ls -l Documentation/devicetree/bindings/processed-schema.json || echo "processed-schema.json missing"
+            echo "kbuild, after:"; grep -E 'SCHEMA|CHECK|DTC' after.out || echo "(no DTC/CHECK line)"
             echo "warnings before: $(wc -l < before.norm), after: $(wc -l < after.norm), new: $(wc -l < new)"
             echo "--- new warnings"; cat new
             echo "--- checkpatch --strict"; tail -n 20 checkpatch.log
@@ -96,4 +100,5 @@ jobs:
           grep -qx 'make exit 0' before.status
           grep -qx 'make exit 0' after.status
           grep -qx 'checkpatch exit 0' checkpatch.status
+          test -s Documentation/devicetree/bindings/processed-schema.json
           test ! -s new
