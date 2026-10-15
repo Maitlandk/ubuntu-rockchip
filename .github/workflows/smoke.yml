@@ -72,8 +72,7 @@ jobs:
 
       - name: Boot it
         run: |
-          echo "::notice title=smoke::downloaded: $(find images -type f -printf '%P %s
-' | paste -sd' ')"
+          echo "::notice title=smoke::downloaded: $(ls -l images | tail -n +2 | awk '{print $9, $5}' | paste -sd' ')"
           disk=$(find images -name '*.img.xz' ! -name '*.esp.*' ! -name '*.root.*')
           [ -n "$disk" ] || { echo "::error title=smoke::no disk image among the downloaded files"; exit 1; }
           sudo SMOKE_OUT="$PWD/smoke" scripts/smoke-qemu.sh "$disk"
