@@ -15,6 +15,7 @@ on:
       - scripts/build-rootfs.sh
       - scripts/config-image.sh
       - config/suites/**
+      - config/boards/turing-rk1.sh
       - .github/workflows/rootfs-check.yml
 
 permissions:
@@ -68,8 +69,13 @@ jobs:
           # As scripts/config-image.sh does it.
           apt-get -qq update
           apt-get -y -qq upgrade
-          apt-get -y -qq install --no-install-recommends u-boot-menu
-          echo "u-boot-menu: $(dpkg-query -W -f '${Version}' u-boot-menu)" >> "$r"
+          . /w/config/boards/turing-rk1.sh
+          config_image_hook__turing-rk1 /
+          echo "grub-efi-arm64 grub2/update_nvram boolean false" | debconf-set-selections
+          apt-get -y -qq -o Dpkg::Options::=--force-confold install --no-install-recommends flash-kernel grub-efi-arm64
+          for p in flash-kernel grub-efi-arm64 grub2-common; do
+            echo "$p: $(dpkg-query -W -f '${Version}' "$p")" >> "$r"
+          done
           if ! apt-get -y install --no-install-recommends linux-generic; then
             echo "apt-get install linux-generic failed, see the job log" >> "$e"
             exit 0
@@ -80,8 +86,6 @@ jobs:
           if [ -f "$dtb" ]; then echo "dtb: $dtb" >> "$r"; else echo "no $dtb" >> "$e"; fi
           if [ -f "/boot/initrd.img-$kver" ]; then echo "initrd: /boot/initrd.img-$kver" >> "$r"
           else echo "no /boot/initrd.img-$kver" >> "$e"; fi
-          bl=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' 'grub-*' flash-kernel shim-signed 2>/dev/null | awk '/^ii/ {print $2}')
-          [ -z "$bl" ] || echo "boot loader packages installed: $bl" >> "$e"
           u=$(command -v update-initramfs || true)
           echo "update-initramfs: ${u:-none}${u:+ ($(dpkg -S "$u" 2>/dev/null | cut -d: -f1))}" >> "$r"
           echo "apt sources: $(grep -rhoE '^(URIs: |deb )[^ ]+( [^ ]+)?' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | sort -u | tr '\n' ' ')" >> "$r"
@@ -89,11 +93,22 @@ jobs:
           # [installed,local]: no configured archive offers that version.
           local_pkgs=$(apt list --installed 2>/dev/null | grep ',local\]' || true)
           [ -z "$local_pkgs" ] || echo "packages not from the archive: $local_pkgs" >> "$e"
-          # B2: the kernel install above wrote extlinux.conf (u-boot-menu's
-          # postinst hook); installing a second kernel must add an entry
-          # for it and keep the first. The oldest other ABI in the archive
-          # stands in for "the next kernel update".
-          ext=/boot/extlinux/extlinux.conf
+          # B2: flash-kernel puts each kernel's DTB at /boot/dtb-<kver>, the
+          # name GRUB's 10_linux turns into a devicetree line. Check it
+          # for the kernel installed above, for a second one (the oldest
+          # other ABI in the archive stands in for "the next kernel
+          # update") and after the second one is removed again.
+          check_dtbs() {
+            for v in $(linux-version list); do
+              l=/boot/dtb-$v
+              if [ ! -e "$l" ]; then echo "$1: $l is missing or dangling" >> "$e"
+              elif ! cmp -s "$l" "/lib/firmware/$v/device-tree/rockchip/rk3588-turing-rk1.dtb"; then
+                echo "$1: $l is not the kernel's rk3588-turing-rk1.dtb" >> "$e"
+              fi
+            done
+            echo "$1: $(for v in $(linux-version list); do printf '%s -> %s; ' "/boot/dtb-$v" "$(readlink "/boot/dtb-$v")"; done)" >> "$r"
+          }
+          check_dtbs "first kernel"
           other=$(apt-cache search --names-only '^linux-image-[0-9.]+-[0-9]+-generic$' |
                     sed 's/^linux-image-\(.*\)-generic .*/\1/' | grep -vxF "${kver%-generic}" |
                     sort -V | head -n1)
@@ -101,36 +116,37 @@ jobs:
             echo "no second linux-image-*-generic in the archive to install" >> "$e"
           elif ! apt-get -y -qq install --no-install-recommends "linux-image-$other-generic"; then
             echo "apt-get install linux-image-$other-generic failed, see the job log" >> "$e"
+          else
+            [ "$(linux-version list | wc -l)" -ge 2 ] || echo "fewer than two kernels installed" >> "$e"
+            check_dtbs "second kernel"
+            apt-get -y -qq purge "linux-image-$other-generic" "linux-modules-$other-generic" ||
+              echo "removing linux-image-$other-generic failed" >> "$e"
+            [ ! -e "/boot/dtb-$other-generic" ] && [ ! -e "/boot/dtb-$other" ] ||
+              echo "/boot/dtb-$other is still there after the kernel was removed" >> "$e"
+            check_dtbs "after removing the second kernel"
           fi
-          for v in $(linux-version list); do
-            grep -q "^[[:space:]]linux /boot/vmlinuz-$v\$" "$ext" || echo "$ext has no entry for kernel $v" >> "$e"
-            grep -q "^[[:space:]]initrd /boot/initrd.img-$v\$" "$ext" || echo "$ext has no initrd for kernel $v" >> "$e"
-            d=/lib/firmware/$v/device-tree
-            grep -q "^[[:space:]]fdtdir $d/\$" "$ext" || echo "$ext has no fdtdir $d/ for kernel $v" >> "$e"
-          done
-          [ "$(linux-version list | wc -l)" -ge 2 ] || echo "fewer than two kernels installed" >> "$e"
-          grep -q 'root=' "$ext" || echo "$ext has no root= argument" >> "$e"
-          echo "kernels: $(linux-version list | tr '\n' ' ')" >> "$r"
-          # U-Boot's extlinux support starts a kernel with booti, which wants
-          # an arm64 Image; an EFI zboot vmlinuz (CONFIG_EFI_ZBOOT) is a
-          # compressed PE image that only an EFI loader can run. Report which
+          echo "kernels now: $(linux-version list | tr '\n' ' ')" >> "$r"
+          # U-Boot's extlinux support (booti) wants an arm64 Image, and an EFI zboot
+          # vmlinuz (CONFIG_EFI_ZBOOT) is a compressed PE image that only an EFI
+          # loader can run: that is why the image boots through GRUB. Report which
           # one Ubuntu ships, from the config and from the file itself.
           echo "kernel config: $(grep -E '^(# )?CONFIG_(EFI_ZBOOT|EFI_STUB|KERNEL_(GZIP|ZSTD|UNCOMPRESSED))[= ]' "/boot/config-$kver" | tr '\n' ' ')" >> "$r"
-          # B2: the serial console must follow the DT's stdout-path (serial9,
-          # ttyS9 on the RK1). The 8250 driver honours line 9 only below
-          # RUNTIME_UARTS, and a console=ttyS0 (uart0, disabled on the RK1)
-          # would silence the line and, being a cmdline console, switch the
-          # stdout-path fallback off. Fail if one can reach extlinux.conf.
+          # The command line grub-mkconfig will use: the cloud image's
+          # /etc/default/grub.d files and ours, sourced in order as
+          # grub-mkconfig does. The serial console must follow the DT's
+          # stdout-path (serial9, ttyS9 on the RK1): the 8250 driver
+          # honours line 9 below RUNTIME_UARTS, and any console= other
+          # than ttyS9 (the cloud image sets tty1 and ttyAMA0) would
+          # silence the line and switch the stdout-path fallback off.
           echo "serial config: $(grep -E '^CONFIG_SERIAL_8250_(NR_UARTS|RUNTIME_UARTS|CONSOLE|DW)=|^CONFIG_SERIAL_EARLYCON=' "/boot/config-$kver" | tr '\n' ' ')" >> "$r"
-          cmdline_files="$ext /etc/default/u-boot /etc/u-boot-menu /usr/share/u-boot-menu /etc/kernel/cmdline /etc/kernel/cmdline.d"
-          # shellcheck disable=SC2086
-          if bad=$(grep -rIs 'console=ttyS0' $cmdline_files); then
-            echo "console=ttyS0 can reach extlinux.conf: $bad" >> "$e"
-          fi
-          # shellcheck disable=SC2086
-          echo "console= in: $(grep -rIsoh 'console=[^ "]*' $cmdline_files /etc/default/grub /etc/default/grub.d 2>/dev/null | sort -u | tr '\n' ' ')(extlinux.conf, u-boot-menu and kernel cmdline files, and GRUB's, which nothing feeds to extlinux)" >> "$r"
+          eff=$(. /etc/default/grub; for f in /etc/default/grub.d/*.cfg; do . "$f"; done
+                echo "cmdline=[$GRUB_CMDLINE_LINUX $GRUB_CMDLINE_LINUX_DEFAULT] force_partuuid=[$GRUB_FORCE_PARTUUID]")
+          echo "grub command line: $eff" >> "$r"
+          echo "/etc/default/grub.d: $(ls /etc/default/grub.d | tr '\n' ' ')" >> "$r"
+          echo "$eff" | grep -oE 'console=[^ ]*' | grep -v '^console=ttyS9' > bad || true
+          [ ! -s bad ] || echo "console= other than ttyS9 on the grub command line: $(cat bad)" >> "$e"
+          echo "$eff" | grep -q 'force_partuuid=\[\]' || echo "GRUB_FORCE_PARTUUID is set: $eff" >> "$e"
           echo "vmlinuz-$kver: $(stat -c %s "/boot/vmlinuz-$kver") bytes, first bytes $(od -A n -t x1 -N 4 "/boot/vmlinuz-$kver"), offset 56 $(od -A n -t x1 -j 56 -N 4 "/boot/vmlinuz-$kver")" >> "$r"
-          { echo "extlinux.conf:"; cat "$ext"; } >> "$r"
           EOF
           status=0
           docker run --rm -v "$PWD:/w" rootfs bash /w/check.sh || status=1
