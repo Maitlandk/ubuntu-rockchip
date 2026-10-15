@@ -105,6 +105,8 @@ jobs:
             echo
             echo "esp: $(sudo blkid -o export /tmp/esp.img | grep -E '^(TYPE|LABEL|UUID)=' | paste -sd' ')"
             echo "esp files:"; (cd /mnt/chk/esp && find . -type f -printf '%p %s\n' | sort)
+            # There is no grub.cfg stub on the ESP, so where GRUB looks must be in the core image.
+            echo "BOOTAA64.EFI mentions: $(sudo strings -n 6 /mnt/chk/esp/EFI/BOOT/BOOTAA64.EFI | grep -E 'fs_uuid|prefix|boot/grub|configfile' | sort -u | head -8 | paste -sd'|')"
           } >> ../report
           for f in user-data meta-data network-config EFI/BOOT/BOOTAA64.EFI; do
             [ -f "/mnt/chk/esp/$f" ] || echo "no $f on the ESP" >> ../errors
