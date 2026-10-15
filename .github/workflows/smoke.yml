@@ -43,12 +43,6 @@ jobs:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 50
-    # pin=no is the control for the decoy-seed check: nothing keeps the decoy
-    # CIDATA disk out, and the report says whether cloud-init took it.
-    strategy:
-      fail-fast: false
-      matrix:
-        pin: ["yes", "no"]
     steps:
       - uses: actions/checkout@v7
 
@@ -82,7 +76,7 @@ jobs:
           disk=$(find images -name '*.img.xz' ! -name '*.esp.*' ! -name '*.root.*')
           [ -n "$disk" ] || { echo "::error title=smoke::no disk image among the downloaded files"; exit 1; }
           rc=0
-          sudo SMOKE_OUT="$PWD/smoke" SMOKE_PIN="${{ matrix.pin }}" scripts/smoke-qemu.sh "$disk" || rc=$?
+          sudo SMOKE_OUT="$PWD/smoke" scripts/smoke-qemu.sh "$disk" || rc=$?
           echo "::notice title=smoke::script exit $rc; smoke dir: $(sudo ls -l smoke 2>&1 | paste -sd'|')"
           if [ -f smoke/trace ]; then
             echo "::notice title=smoke trace::$(sudo tail -n 15 smoke/trace | cut -c1-200 | paste -sd'|')"

@@ -132,9 +132,13 @@ Read it, and check each of these. **STOP** if one fails.
   if it is also labelled `CIDATA` (`blkid /dev/nvme0n1p1`), cloud-init on the
   test boot could read it instead of the image's own seed, and run whatever
   it holds (users, hostname, packages, commands) on the test system. Step 5
-  prevents that, and the QEMU smoke test checks that it does (a decoy
-  `CIDATA` disk attached ahead of the boot disk; the guest must report the
-  image's `instance-id: cloud-image` and no decoy file). If the seed holds
+  prevents that by making cloud-init look for another label. The QEMU smoke
+  test boots the image with exactly that setting and a decoy `CIDATA` disk
+  attached, and the guest uses the image's own seed (`instance-id:
+  cloud-image`, from the relabelled ESP), so the setting works and does not
+  lock the image out of its seed. It did not show the collision itself: an
+  unpinned control run also took the image's seed (which of two `CIDATA`
+  devices cloud-init meets first is blkid's order, unknown on the node). If the seed holds
   anything that would reach the cluster (`k3s`, join tokens, a registry
   login), say so in the report; step 5 is then not optional.
 
