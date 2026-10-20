@@ -11,8 +11,9 @@ The tree started as upstream `Joshua-Riek/ubuntu-rockchip` at 38dfb49
 (archived), which built a vendor kernel from `Joshua-Riek/linux-rockchip`
 (the Rockchip BSP 5.10/6.1 tree) and pulled unmaintained PPAs (`jjriek/*`,
 panfork). The kernel build, the PPAs, the other 30 boards and the old
-suites are gone (roadmap A1-A4). What is left still builds its root
-filesystem with Joshua's `livecd-rootfs` fork until B1 replaces it.
+suites are gone (roadmap A1-A4), and the root filesystem starts from
+Canonical's arm64 cloud root tarball instead of Joshua's `livecd-rootfs`
+fork (B1).
 
 Ubuntu's generic arm64 kernel enables everything the RK3588 and the RK1
 need and ships the RK1 device tree (26.04, 7.0.0-38; details in
