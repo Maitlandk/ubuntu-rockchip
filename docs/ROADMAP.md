@@ -488,9 +488,8 @@ read the logs.
   `*.root.img.xz` into `mmcblk0p2` (nothing below the partitions, hashed
   before and after); makes cloud-init take the image's seed only (the NVMe's
   seed partition is probably also `CIDATA`); interrupts U-Boot 2024.01 over
-  `tpi uart` and boots the ESP by hand (`run bootcmd_mmc0`, or
-  `setenv devtype mmc; setenv devnum 0; setenv distro_bootpart 1; run
-  scan_dev_for_efi` when the old table types partition 2 as the ESP); a power
+  `tpi uart` and boots the ESP by hand (`load mmc 0:1 ${kernel_addr_r}
+  efi/boot/bootaa64.efi; bootefi ${kernel_addr_r}`); a power
   cycle returns to the NVMe system. `scripts/e1-evidence.sh` collects the boot
   path (EFI, `/proc/cmdline`, `ttyS9`, the GPU and NPU nodes in the running
   tree, `/sys/firmware/fdt` against `/boot/dtb-<kver>` outside `/chosen`) and
@@ -498,10 +497,11 @@ read the logs.
   cpufreq, thermal, fan under load) and ends in PASS/FAIL lines; the F1-F3
   checks that were here moved into the runbook unchanged. Read from U-Boot
   at cb493752 (the commit the installed 2024.01 package was cut from), not from
-  the board: `part list -bootable` counts an ESP-typed partition as bootable
-  (`cmd/part.c`, `disk/part_efi.c`), distro boot's `scan_dev_for_efi` runs
-  `efi/boot/bootaa64.efi` with `bootefi` after looking for extlinux and
-  `boot.scr`, and `load` records the ESP as the boot device so that GRUB's
+  the board: Rockchip boards there boot with standard boot (`ARCH_ROCKCHIP`
+  implies `BOOTSTD_DEFAULTS`, and `rockchip-common.h` no longer includes the
+  distro boot scripts), so the runbook's first draft, which ran
+  `bootcmd_mmc0`/`scan_dev_for_efi`, would have stopped at step 6 (corrected
+  2026-10-20); `load` records the ESP as the boot device so that GRUB's
   `(,gpt2)` resolves; whether the node's U-Boot was built with
   `CONFIG_EFI_LOADER` (default y on arm64; the RK1 defconfig does not unset it) is the first thing the runbook
   asks the console. `docs/e1-runbook.md` is also where E2 finds what is
@@ -627,3 +627,7 @@ CI run · result · cost if known · next.
   node 1, then k3s upgrade, then two more masters; board v2.4 (EDID
   fallback); F4's hardware test waits for node 1's move · next: E1 on
   node 2.
+- 2026-10-20 · E1 runbook review · Opus · docs only · no CI · step 6 used
+  distro boot scripts that U-Boot 2024.01 (cb493752) does not have on
+  Rockchip (standard boot); it now loads and runs `efi/boot/bootaa64.efi`
+  with `load` + `bootefi` · not run on hardware · next: E1 on node 2.

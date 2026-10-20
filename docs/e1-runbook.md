@@ -36,7 +36,7 @@ each is marked with STOP below:
   the eMMC (step 2);
 - a backup does not verify;
 - the first 16 MiB of the eMMC differ from the backup at any later point;
-- U-Boot has no `bootefi` command or no `scan_dev_for_efi` (step 6);
+- U-Boot has no `bootefi` command, or `load` cannot read `efi/boot/bootaa64.efi` from `mmc 0:1` (step 6);
 - the node does not come back to its NVMe system after a power cycle.
 
 ## 0. Names used below
@@ -113,11 +113,9 @@ Read it, and check each of these. **STOP** if one fails.
   partition 2 the root image. The GRUB in the image finds its `grub.cfg`
   as `(,gpt2)/boot/grub`: partition 2 of the disk it was loaded from, so
   the table must be GPT and the root must be partition 2.)
-- Note partition 2's type GUID from `sgdisk -i 2`. If it is
-  `C12A7328-F81F-11D2-BA4B-00A0C93EC93B` (the old image layout put the ESP
-  type on the root), U-Boot's `run bootcmd_mmc0` scans partition 2 only, finds
-  no `bootaa64.efi` there, and step 6 must use its second form. Nothing to
-  change on the disk.
+- Note partition 2's type GUID from `sgdisk -i 2`, for the record. Step 6
+  names partition 1 explicitly, so the partition types do not decide what
+  boots. Nothing to change on the disk.
 - **Labels.** The images carry the labels `CIDATA` (ESP) and `cloudimg-rootfs`
   (root), which Joshua's images, and so probably this node, also use. Look
   at what the NVMe system refers to by label: the last `grep` above, and
@@ -254,45 +252,49 @@ Interrupt U-Boot, boot `mmc0` by hand, never persist anything.
    Without the interrupt the node simply boots its NVMe system again; nothing
    is lost, repeat.
 3. At the `=>` prompt (U-Boot 2024.01; the boot order patched to `mmc1 nvme scsi
-   usb mmc0 pxe dhcp spi` is why this must be by hand):
+   usb mmc0 pxe dhcp spi` is why this must be by hand). Read-only:
 
    ```
+   version
    mmc list
    mmc dev 0
    part list mmc 0
-   part list mmc 0 -bootable devplist
-   printenv devplist boot_targets fdtfile scan_dev_for_efi boot_efi_binary
+   ls mmc 0:1 efi/boot
+   printenv boot_targets fdtfile kernel_addr_r
    help bootefi
+   bootflow scan -l mmc0
    ```
 
    Expected: `mmc list` shows the eMMC as `0` (`mmc@fe2e0000`); `part list` shows
-   the 512M and 28.6G partitions; `devplist` holds `1` (the ESP type makes
-   partition 1 "bootable" for distro boot; `1 2` or `2` if the old table typed the
-   root as an ESP); `scan_dev_for_efi` and `boot_efi_binary` are defined and
-   `bootefi` exists. **STOP** if `bootefi` is unknown or `scan_dev_for_efi`
-   is not set: this U-Boot cannot run `bootaa64.efi`, and the plan then needs
-   the v2026.10 U-Boot from C1 on the eMMC, a boot loader change the owner and
-   the session must decide first.
+   the 512M and 28.6G partitions; `ls` lists `bootaa64.efi`; `bootefi` exists.
+   `bootflow scan -l` only lists what U-Boot's standard boot would find; it
+   boots nothing. U-Boot at cb493752 boots Rockchip boards with standard boot
+   (`ARCH_ROCKCHIP` implies `BOOTSTD_DEFAULTS` in `arch/arm/Kconfig`, and
+   `rockchip-common.h` no longer includes the distro boot scripts), so there is
+   no `bootcmd_mmc0` or `scan_dev_for_efi` to run; step 4 names the file
+   instead. **STOP** if `bootefi` is unknown or `ls` finds no `bootaa64.efi`:
+   this U-Boot cannot run the ESP, and the plan then needs the v2026.10 U-Boot
+   from C1 on the eMMC, a boot loader change the owner and the session must
+   decide first.
 
-4. Boot. First form:
-
-   ```
-   run bootcmd_mmc0
-   ```
-
-   Second form, if `devplist` is `2` (or the first form fell through): select the ESP by hand,
-   whatever the partition types say:
+4. Boot: load GRUB from the ESP and start it as an EFI application.
 
    ```
-   setenv devtype mmc; setenv devnum 0; setenv distro_bootpart 1; run scan_dev_for_efi
+   load mmc 0:1 ${kernel_addr_r} efi/boot/bootaa64.efi
+   bootefi ${kernel_addr_r}
    ```
+
+   `load` also records `mmc 0:1` as the EFI boot device, so GRUB finds its
+   `grub.cfg` as `(,gpt2)/boot/grub` on the same disk. `bootefi` hands GRUB
+   U-Boot's own device tree; GRUB's `devicetree` replaces it with Ubuntu's
+   before the kernel starts (step 7 checks that).
 
    What each outcome means, in order of appearance:
 
    | Console | Meaning |
    |---|---|
-   | `Scanning mmc 0:1...` then `Found EFI removable media binary efi/boot/bootaa64.efi` | **U-Boot ran the ESP's `bootaa64.efi` (GRUB).** Evidence for B2's open question. |
-   | `EFI LOAD FAILED: continuing...` or nothing after `Scanning` | U-Boot found no file or could not start it: send the console log. |
+   | `NNN bytes read`, then `bootefi` starts it (GRUB's menu or messages follow) | **U-Boot ran the ESP's `bootaa64.efi` (GRUB).** Evidence for B2's open question. |
+   | `** Unable to read file **`, or an error from `bootefi` | U-Boot found no file or could not start it: send the console log. |
    | GRUB's menu, or nothing, then `EFI stub: Booting Linux Kernel...` | GRUB read its `grub.cfg` (a hidden menu is normal) and started the kernel. |
    | `grub>` prompt | GRUB did not find `grub.cfg`: run `ls`, then `ls (hd0,gpt2)/boot/grub/` (try `hd1`), `echo $prefix $root`, `configfile (hd0,gpt2)/boot/grub/grub.cfg`, and send what they print. Do not reset: the log is the evidence. |
    | `EFI stub: ...` lines, then silence | the kernel started, console or DT problem: wait two minutes, then send the log. |
