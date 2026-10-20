@@ -197,6 +197,42 @@ commits; nothing new is added here.
   U-Boot's scan tries partition 1 only, which is the ESP: nothing to
   change on the eMMC. Verified in the image and from U-Boot's source, not on
   hardware.
+- 🟡 **B4. Does a `grub-efi-arm64` upgrade refresh `EFI/BOOT/BOOTAA64.EFI`?**
+  (S). U-Boot runs the removable-path file, not `EFI/ubuntu/grubaa64.efi`,
+  so a GRUB upgrade that refreshed only the latter would leave a stale
+  core image booting a new `grub.cfg` and modules. *Answered from source
+  2026-10-20: yes, with three conditions; the CI proof is still to do.*
+  Read in `grub2-unsigned` 2.14-2ubuntu1 (the source of resolute's
+  `grub-efi-arm64`; no Recommends, so no `-signed` or shim on the image):
+  - `postinst.in`, `configure`: when `/boot/grub/arm64-efi/core.efi`
+    exists and `GRUB_DISTRIBUTOR` gives a bootloader id, it runs
+    `/usr/lib/grub/grub-multi-install --target=arm64-efi
+    "$NO_EXTRA_REMOVABLE" "$NO_NVRAM"`. `NO_NVRAM` is `--no-nvram` because
+    `config-image.sh` presets `grub2/update_nvram false`;
+    `NO_EXTRA_REMOVABLE` is empty unless `grub2/no_efi_extra_removable` is
+    true (default false).
+  - `patches/ubuntu-grub-install-extra-removable.patch`: Ubuntu's
+    `grub-install`, without `--removable` or `--no-extra-removable`, copies
+    the core image to `EFI/BOOT/BOOT<ARCH>.EFI` too
+    (`also_install_removable()`). That is why `build-image.sh`'s plain
+    `grub-install --target=arm64-efi --no-nvram` leaves both files.
+  - `grub-multi-install`: with `grub-efi/cloud_style_installation` false
+    (default) and `grub-efi/install_devices` empty and unseen, the first run
+    takes the device mounted at `/boot/efi` from `/proc/mounts`, stores its
+    `/dev/disk/by-id` name and runs `grub-install --efi-directory=<its
+    mount>`; later runs use the stored device.
+  - Conditions: `core.efi` exists (from `build-image.sh`'s `grub-install`),
+    `/boot/efi` is mounted (fstab), and `grub-efi/install_devices` is not
+    preseeded in the image with a build-time device. If it were, the
+    postinst would find that device missing and ask the critical
+    `install_devices_disks_changed` question; non-interactive, the default
+    answer adds the `/boot/efi` device (read, not tested).
+  - Not verified on any running system. To do (S, CI): in `build.yml`'s
+    chroot on a copy of the image, `debconf-show grub-efi-arm64` must show
+    `install_devices` empty; then truncate `BOOTAA64.EFI`, run
+    `dpkg-reconfigure grub-efi-arm64` with the ESP mounted at `/boot/efi`,
+    and fail unless `BOOTAA64.EFI` equals `EFI/ubuntu/grubaa64.efi` again.
+    On node 2 the same check is part of the stability checks (M2).
 
 ## C. U-Boot
 
@@ -517,15 +553,315 @@ to it; then F4's HDMI boot test on node 1 (the only slot wired to HDMI;
 HDMI is not in use on the cluster today, so nothing waits on F4); the k3s
 upgrade (cluster agent); then two more master/server nodes. The board is a
 Turing Pi 2 v2.4 (owner, to their knowledge), where EDID is broken: the
-F4 test expects a 1080p fallback picture, not the monitor's modes. No
-roadmap task yet covers moving a node onto the new system.
+F4 test expects a 1080p fallback picture, not the monitor's modes.
+Section M plans the moves.
+
+## M. Moving the nodes
+
+Planned 2026-10-20 from this file, `docs/e1-runbook.md`, bmcd v2.3.4 and
+Ubuntu's grub2 and systemd packaging; nothing here has run on hardware.
+Every hardware step is the owner's; sessions write the runbooks and read
+the logs. Each node move is a **reinstall** of a CI-built image, done
+once on node 2 and only then on node 1; each changes one thing at a time:
+the OS first with the U-Boot 2024.01 the node already runs, the boot
+loader later as its own step. The owner's questions are at the end of
+this section; a task that depends on one says so.
+
+**Facts every move depends on:**
+
+- **The new image cannot run cgroup v1.** 26.04 ships systemd 259
+  (`259.5-0ubuntu3`, `-updates` `259.9-0ubuntu0.1`), and systemd 258
+  removed cgroup v1 ("legacy" and "hybrid"; systemd `NEWS`, "CHANGES WITH
+  258"). So risk G11 has to be settled for the cluster's **current** k3s
+  version and workloads before node 2 rejoins the cluster (M3), not at the
+  k3s upgrade. A cluster where some nodes run cgroup v1 and others v2 is
+  fine for Kubernetes; the question is only whether anything needs v1.
+- **Two copies of one build on one node have the same filesystem UUIDs.**
+  `build-image.sh` draws the ESP serial and root UUID at random per build,
+  so the eMMC (E1's test system) and the NVMe must carry different builds.
+  With the same build twice, GRUB's `search --fs-uuid` and the kernel's
+  `root=UUID=` can pick the eMMC copy while U-Boot loaded the NVMe's GRUB.
+  Check after each write: `blkid -s UUID -o value | sort | uniq -d` prints
+  nothing.
+- **Labels.** The image's ESP is `CIDATA`; E1 relabels the eMMC copy to
+  `E1SEED`, so after a move the NVMe's `CIDATA` is the only seed. The root
+  label `cloudimg-rootfs` is on both and used by nothing (fstab and GRUB
+  use UUIDs).
+- **Per-node seed.** The image's `user-data` is generic (user `ubuntu`).
+  Before first boot the owner writes the node's own `user-data` onto the
+  new ESP: hostname, user and SSH keys, the network if it is not DHCP. No
+  join token or other secret goes into this repo.
+- **What a move does to k3s:** nothing in the image installs k3s. The
+  cluster agent installs it on the new system at the cluster's current
+  version (`INSTALL_K3S_VERSION`; an agent must never be newer than its
+  server). The server knows each node by name and a node password
+  (`/etc/rancher/node/password` on the node, a `<node>.node-password.k3s`
+  secret on the server), so a reinstalled node with the old name either
+  gets the old password file back or is deleted from the cluster first
+  (`kubectl delete node`, after which k3s drops the secret). Which one is
+  the cluster agent's call.
+
+### Recovery ladder (every node)
+
+From least to most invasive; each rung is for when the one above fails.
+
+1. **The NVMe system does not come up, U-Boot does.** U-Boot's order
+   (`mmc1 nvme scsi usb mmc0 ...`) falls through to the eMMC by itself
+   when it finds nothing to boot on the NVMe; when GRUB or the kernel
+   fails after U-Boot handed over, interrupt it on `tpi uart` and start
+   the eMMC's ESP by hand (`load mmc 0:1 ${kernel_addr_r}
+   efi/boot/bootaa64.efi; bootefi ${kernel_addr_r}`, E1 step 6). The eMMC system then reads and
+   writes the NVMe, e.g. to restore a backup.
+2. **U-Boot does not come up** (no `U-Boot SPL` banner on the console):
+   restore the eMMC's first 16 MiB through **maskrom** from the BMC (M1),
+   which does not depend on anything on the eMMC.
+3. **The eMMC's partitions are gone too:** the same route writes a whole
+   eMMC image from byte 0; the E1 backups (first 16 MiB, `p1`, `p2`, the GPT
+   tail) would have to be put together into one. Not written, not tested.
+4. **The NVMe's contents are gone:** restore the NVMe backup taken before
+   the move, from a system booted on the eMMC (rung 1); for node 1, put the
+   old drive back if M6 uses a new one.
+
+What bmcd v2.3.4 does, read from source, **not tried** (`src/app/
+bmc_application.rs`, `src/app/upgrade_worker.rs`, `src/usb_boot/
+rockusb.rs`, `src/hal/pin_controller.rs`): `tpi flash` and
+`tpi advanced msd` power the slot off, route its USB to the BMC in flash
+mode, which raises the node's `rpiboot` GPIO (on an RK1 that forces
+maskrom), power it on, wait 1 s and drop the pin. A device `2207:350b` in
+maskrom (bcdUSB sub-minor bit 0 clear) gets bmcd's built-in
+`rk3588_spl_loader_v1.08.111.bin` (Rockchip's DDR init and usbplug, boot
+entries 0x471 and 0x472); 5 s later bmcd opens the block device whose
+vendor is `Rockchip`. `flash` copies the image onto it from byte 0 in
+512 KiB blocks (no seek), checks a CRC-64 by reading back as many bytes as
+it wrote, then powers the slot off. `msd` instead exports that block
+device over the BMC's USB gadget; it is also a block device on the BMC
+itself. So `tpi flash` of `emmc-first16MiB.img` writes exactly the
+loader region and the primary GPT and nothing else, and maskrom is a way
+in that does not depend on the eMMC. That the loader exposes the eMMC
+user area (not the NVMe) is Turing's documentation and what the size
+check in M1 decides. Both commands hard power-cycle the slot: the node is
+drained and shut down first, and the slot is confirmed as in E1 step 1.
+
+### Stable, defined
+
+A node "runs the new system stably" when, for a soak of **D days with at
+least R reboots** (owner question 2; proposal: 7 days, 3 reboots: one warm
+`systemctl reboot`, one cold `tpi power off`/`on`, one after an `apt
+full-upgrade`), every check below passes on a daily run and after each
+reboot. A failure restarts the clock once its cause is known (rule 6).
+
+- **Boot path, every boot, unattended:** `/` is `nvme0n1p2`, `/boot/efi`
+  is `nvme0n1p1`; `/sys/firmware/efi` exists; `/proc/cmdline` is
+  `BOOT_IMAGE=... root=UUID=<the NVMe root's> ro earlycon`; console
+  `ttyS9`; the running DT equals `/boot/dtb-$(uname -r)` outside
+  `/chosen` (`scripts/e1-evidence.sh`'s checks); no duplicate UUIDs.
+- **No unexplained reboot:** `journalctl --list-boots` shows only the
+  deliberate ones.
+- **System:** `systemctl is-system-running` is `running`, `systemctl
+  --failed` empty; `journalctl -k -b -p err` has nothing new against E1's
+  baseline, and no `Oops`, `BUG`, `WARNING:`, `Call trace`, NVMe timeout or
+  reset, `mmc` or I/O error in `journalctl -k`.
+- **Hardware:** `nvme smart-log /dev/nvme0`: `media_errors` 0 and
+  `num_err_log_entries` not growing; `ethtool` 1000 Mb/s full, `ip -s
+  link` RX/TX errors not growing; thermal zones below their trips under a
+  `stress-ng` run, fan responding; `timedatectl` synchronised.
+- **Updates:** `apt-get update` rc 0; unattended-upgrades ran
+  (`/var/log/unattended-upgrades/`); after any new `linux-image`, the
+  reboot runs that kernel with its own `/boot/dtb-<kver>`; after any
+  `grub-efi-arm64` upgrade or a `dpkg-reconfigure grub-efi-arm64`,
+  `/boot/efi/EFI/BOOT/BOOTAA64.EFI` equals `EFI/ubuntu/grubaa64.efi` and is
+  newer than before (B4).
+- **k3s:** `k3s check-config` passes; the node stayed `Ready` (no
+  `NodeNotReady` in `kubectl get events --field-selector
+  involvedObject.name=<node>`); its DaemonSet pods (flannel or the CNI,
+  svclb, ...) show no restarts; a pod on it resolves cluster DNS and
+  reaches a pod on another node; no `MemoryPressure`/`DiskPressure`; the
+  kubelet log (`journalctl -u k3s-agent`) has no error repeating every
+  sync. The k3s lines are the cluster agent's to confirm.
+
+### Tasks
+
+- 📋 **M1. Prove the BMC recovery path, read-only** (S; 👤 owner runs,
+  session writes the steps; after E1, parallel to everything else). Before
+  any loader change relies on rung 2. With node 2 drained and shut down:
+  `tpi advanced msd --node 2` (syntax per `tpi --help`); on the BMC,
+  `cat /proc/partitions` must show one new disk of about 29 GiB (the
+  eMMC; anything else, stop); `dd if=/dev/<it> bs=1M count=16 | sha256sum`
+  must equal E1's `emmc-first16MiB.sha`; then return the slot to normal
+  mode and power it on; the node boots its NVMe system. Pass: hash equal,
+  normal boot, first 16 MiB unchanged afterwards. Also record the BMC
+  firmware version (`tpi info`). A write proof, `tpi flash --node 2` of
+  `emmc-first16MiB.img` (identical bytes back) and the hash again, only
+  if the owner accepts a write to the loader region (question 9).
+- 📋 **M2. Stability checker** (S, after E2). A read-only script, or a
+  `--soak` mode of `scripts/e1-evidence.sh` (whichever adds less), that
+  runs the checks under "Stable, defined" on the node and ends in
+  PASS/FAIL lines, plus the k3s checks run from wherever `kubectl` works.
+  The owner runs it daily and after each reboot. Also B4's CI proof.
+- 📋 **M3. Node 2: reinstall onto the NVMe** (M; session writes
+  `docs/m3-node2-runbook.md`, 👤 owner runs; after E2 passes and G11 is
+  settled for the current k3s). This is the first planned write to node
+  2's NVMe and needs the owner's explicit go (rule 1 forbids it for a
+  test; this is the move).
+  - **Reinstall, not in place** (question 1). The NVMe holds Joshua's
+    image: vendor kernel, `jjriek` PPAs, his boot files, cgroup v1. An
+    in-place upgrade to 26.04 with a kernel swap is a path nobody has
+    built or tested and CI cannot reproduce; a reinstall puts on the NVMe
+    an image CI checked and E1 booted.
+  - **How:** from E1's eMMC system, booted by hand (E1 step 6), so that
+    nothing on the NVMe is in use. First a full backup of `nvme0n1` to the
+    Odroid, verified like E1 step 3 (question 3: the NVMe's size and the
+    Odroid's room), plus the old system's `/etc/rancher/` and the node's
+    labels, taints and annotations (`kubectl get node turingnode2 -o
+    yaml`). Then a new GPT on `nvme0n1` like the image's (p1 16-272 MiB
+    ESP type, p2 272 MiB to the end, Linux) and the `.esp`/`.root` images
+    of a **different build** than the eMMC's written into the partitions,
+    hashed before and after, as E1 step 4 does on the eMMC. Not the
+    whole-disk image: it would also put U-Boot 2026.10 at the NVMe's
+    sector 64, which the boot ROM never reads and would only confuse later
+    checks. cloud-init's growpart and `x-systemd.growfs` grow p2 and its
+    filesystem on first boot. Then the node's `user-data` on the new ESP
+    (above), power cycle, no interrupt: U-Boot 2024.01 boots the NVMe.
+  - **Layout after:** `nvme0n1p1` 256 MiB vfat ESP, label `CIDATA`, at
+    `/boot/efi` (it was `/boot/firmware`: anything of the cluster's that
+    reads that path changes); `nvme0n1p2` ext4 root, the rest of the disk.
+    A separate partition for `/var/lib/rancher` is question 5.
+  - **k3s:** before, the cluster agent records node-local data
+    (local-path volumes under `/var/lib/rancher/k3s/storage`, hostPath
+    volumes, anything pinned to node 2), then cordons and drains. After
+    first boot: k3s agent at the current version, same node name, the old
+    node password or a delete first (above), labels and taints back, the
+    k3s checks of "Stable, defined", uncordon.
+  - **eMMC:** the loader region is not written; its hash is checked
+    before and after against E1's. The partitions keep E1's test system as
+    rung 1 of the ladder (question 4).
+  - **Rollback:** before the rejoin, boot the eMMC system and restore the
+    NVMe backup; the old system comes back with its old k3s identity.
+    Downtime: node 2's workloads only, carried by the other nodes while it
+    is drained; no cluster outage.
+- 👤 **M4. Node 2 soak** (after M3). "Stable, defined" with M2's checker.
+  The result goes into this file; node 1 waits for it.
+- 📋 **M5. U-Boot v2026.10 on node 2** (M; session research and runbook,
+  👤 owner runs; after M4 and M1; question 8 for whether and when). The
+  OS stays as M4 left it; only the loader changes.
+  - Session first, from U-Boot v2026.10's source: can the RK3588 build
+    make a maskrom RAM-boot image (`u-boot-rockchip-usb471.bin` and
+    `-usb472.bin`, `CONFIG_ROCKCHIP_MASKROM_IMAGE` in
+    `doc/board/rockchip/rockchip.rst`; to check, not known), and can a
+    host load it through the Turing Pi (`tpi usb flash --node 2` routes
+    the node's USB to the USB-A port with the maskrom pin up;
+    `configure_usb_internal()` handles that case; not tried on a v2.4)?
+    If yes, step one is a RAM boot of v2026.10 with no write at all.
+    Also: that v2026.10 still takes `boot_targets` with 0001's order
+    under standard boot, and runs `bootaa64.efi` from the NVMe's ESP.
+  - Then the write, from node 2's running NVMe system: fresh backup of
+    the first 16 MiB, verified; check that `mmcblk0p1` starts at or after
+    sector 32768; `dd if=u-boot-rockchip.bin of=/dev/mmcblk0 bs=32k seek=1
+    conv=fsync` (sector 64, as `build-image.sh` writes it; 9.77 MB ends
+    below 16 MiB, so the GPT and partitions are untouched); hash the
+    region against the file. Console: `U-Boot SPL 2026.10`, NVMe boots
+    unattended; the M2 checks pass across cold power cycles. (Whether
+    v2026.10 offers `EFI_RNG_PROTOCOL` on the RK3588, so that "KASLR
+    disabled due to lack of seed" goes away, is for the source check.) Soak length:
+    question 2.
+  - Rollback: from any running system, write sectors 64 to 32767 of
+    `emmc-first16MiB.img` back (the GPT need not be rewritten); if U-Boot
+    does not come up, M1's route.
+  - The BL31 swap to mainline TF-A (C1) is yet another separate test.
+    Nothing here goes near node 1 until this soak has passed.
+- 📋 **M6. Node 1: reinstall** (L; session writes
+  `docs/m6-node1-runbook.md`, 👤 owner runs; after M4). The cluster's
+  server and the main server: plan for the cluster to be without its
+  control plane for the window. Same image, same layout, same U-Boot
+  2024.01 that node 2 ran M4 on; node 1's eMMC loader region is backed up
+  (read only, as in E1 step 3) and never written in M6.
+  - **Inventory, read-only, before anything:** k3s version and datastore
+    (`/var/lib/rancher/k3s/server/db/`: `state.db` is SQLite, `etcd/` is
+    embedded etcd); `/etc/rancher/k3s/config.yaml`; the address agents use
+    (`K3S_URL`) and the TLS SANs; the pods on node 1 (`kubectl get pods
+    -A -o wide --field-selector spec.nodeName=turingnode1`: CoreDNS,
+    Traefik, svclb, local-path volumes); and everything that is not k3s
+    ("main server": `systemctl list-units --type=service
+    --state=running`, `ss -tlnp`, crontabs, exports; question 7). Also node
+    1's own eMMC (`sgdisk -p`, the SPL banner): only node 2's was checked.
+  - **Backups, verified, before the window:** a full image of the NVMe
+    (offline, see the approach); in the window, after `systemctl stop
+    k3s`: all of `/var/lib/rancher/k3s/server/` (the datastore, `tls/`,
+    `token`, `cred/`, `manifests/`) and `/etc/rancher/`; for etcd also a
+    `k3s etcd-snapshot save` before the stop. Without the same `tls/` and
+    token every agent and kubeconfig is orphaned. Local-path data on node
+    1 as the inventory finds it.
+  - **Approach** (question 6): **(a)** a new NVMe drive, written on the
+    Odroid in a USB enclosure (GPT, partition images, seed), swapped in
+    during the window; the old drive is the rollback, untouched, and
+    nothing else ever boots on node 1. **(b)** the same drive, written from
+    a system booted by hand on node 1's eMMC (M3's way): that is a
+    non-persistent boot on node 1, which the owner has ruled out for
+    tests. **(c)** the same drive, pulled and written on the Odroid; the
+    rollback is restoring the full image.
+  - **Window, for (a):** move what can move off node 1 first (CoreDNS
+    replicas on other nodes, workloads; draining does not move the control
+    plane); stop k3s; final backup; power off (slot confirmed); swap;
+    power on; cloud-init sets hostname and address as before; k3s server at
+    the same version; restore the server directory and `/etc/rancher/k3s/`;
+    start; every node `Ready` (agents reconnect on their own when CA, token
+    and address are unchanged); uncordon. While k3s is stopped running
+    pods keep running, but nothing is scheduled or healed and `kubectl`
+    does not answer; what runs only on node 1 (CoreDNS, ingress) is down
+    for every node. Duration: to be measured on the day; the steps above
+    are prepared outside the window.
+  - **Rollback and its limit:** stop the new k3s, power off, old drive
+    back (or restore the image): the old server comes back with the state
+    of the stop. Anything changed in the cluster after the move is lost on
+    rollback, so the runbook sets a go/no-go point (e.g. the first hour);
+    after it, fix forward from the backups.
+  - Then F4's HDMI test (rollout order) and node 1's soak.
+- 📋 **M7. U-Boot v2026.10 on node 1** (S, 👤; only if question 8 says
+  so; after M5's soak and M6's soak). M5's procedure, nothing new.
+- 👤 **M8. k3s upgrade** (the cluster agent's plan, not this repo's).
+  After M6. G11 is already gone on the moved nodes (systemd 259); what is
+  left is the upgrade itself. If the datastore is SQLite, the two new
+  servers need embedded etcd: k3s documents converting a SQLite server by
+  restarting it with `--cluster-init`; which versions support that, and
+  whether before or after the upgrade, is the cluster agent's call.
+- 📋 **M9. Two more server nodes** (M per node, after M8; question 10).
+  Each node is reinstalled as in M3 (its own eMMC and NVMe checked first,
+  as M6's inventory does; only node 2's are known), soaked, then joined
+  as a k3s server by the cluster agent. The image and seed are the same;
+  nothing here is k3s-specific.
+
+### Questions for the owner
+
+1. Reinstall rather than upgrade in place, for node 2 and node 1?
+2. Soak: how many days and reboots, for the OS move and for the U-Boot
+   change, and must a kernel update land inside the OS soak?
+3. Node 2's NVMe: its size, and does the Odroid have room for a full
+   image (and later node 1's)?
+4. After M3, keep E1's test system on node 2's eMMC as a rescue boot, or
+   put the stale install back (E1 step 10)?
+5. Layout: ESP and one root as in the image, or a separate partition for
+   `/var/lib/rancher`?
+6. Node 1: (a) new drive, (b) a helper boot on node 1's eMMC, or (c)
+   pulled drive?
+7. What runs on node 1 besides k3s, and where does each piece live
+   during and after the window? What downtime is acceptable, and when?
+8. U-Boot v2026.10: wanted at all? On node 1 too? Before or after node 1's
+   OS move (M6 does not need it)?
+9. M1's write proof: may identical bytes be written to node 2's loader
+   region through the BMC to prove the restore?
+10. Which slots become the two new servers, and what do they run today?
+
+For the cluster agent, through the owner: the current k3s version and
+datastore, node-local data on nodes 1 and 2, and G11: does anything
+require cgroup v1, given that 26.04 cannot boot it?
 
 ## Outside this repo
 
 - 👤 **Cluster handoff.** Node 2 boots with
   `systemd.unified_cgroup_hierarchy=0` (cgroup v1). That confirms risk G11
   in the cluster's k3s upgrade plan and must be fixed there; the cluster
-  agent owns it.
+  agent owns it. It now comes before M3: Ubuntu 26.04's systemd 259 has no
+  cgroup v1, so a moved node runs v2 whatever the cluster's plan says.
 
 ## Running a task in a cloud session
 
@@ -631,3 +967,8 @@ CI run · result · cost if known · next.
   distro boot scripts that U-Boot 2024.01 (cb493752) does not have on
   Rockchip (standard boot); it now loads and runs `efi/boot/bootaa64.efi`
   with `load` + `bootefi` · not run on hardware · next: E1 on node 2.
+- 2026-10-20 · node moves planned (M1-M9), B4 · Opus · docs only · no CI ·
+  read bmcd v2.3.4 (maskrom flash/msd path), grub2-unsigned 2.14-2ubuntu1
+  (postinst refreshes `BOOTAA64.EFI`), systemd 259 `NEWS` (no cgroup v1 on
+  26.04, so G11 comes before node 2 rejoins) · nothing run on hardware ·
+  cost not read · next: E1, M1 in parallel; ten owner questions under M.
