@@ -316,7 +316,7 @@ scripts until it has evidence.
   check whether any cluster workload uses the NPU today (ask the cluster
   agent). Hardware check: `/dev/accel/accel0`, one TFLite model through
   the delegate.
-- 🟡 **F4. HDMI on the RK1: device tree gap** (M). Patch prepared, not sent: `upstream/linux/` (HDMI0 + VOP vp0 + hdptxphy0 in the `.dts`; checkpatch --strict and dtbs_check clean in CI, run 38680595353; a node 1 boot test still owed, then the owner sends it). Mainline's
+- 🟡 **F4. HDMI on the RK1: device tree gap** (M). Patch prepared, not sent: `upstream/linux/` (HDMI0 + VOP vp0 + hdptxphy0 in the `.dts`; checkpatch --strict and dtbs_check clean in CI, run 38680595353; a node 1 boot test still owed, then the owner sends it; ⏸ that test waits until node 1 itself runs the new system, see "Rollout order"). Mainline's
   `rk3588-turing-rk1.dtsi` (and the 4-line `.dts`) enable no display
   nodes: no `vop`, `hdmi0` or `hdptxphy` (checked against torvalds/master,
   2026-10-14). The drivers exist; the board description does not use them.
@@ -509,6 +509,17 @@ read the logs.
 - ⏳ **E2. Read the evidence** (S, after E1). File Launchpad bugs or
   mainline reports for anything missing; record findings in CLAUDE.md.
 
+## Rollout order (owner, 2026-10-20)
+
+Node 1 is the cluster's master and main server: no test runs on it. In
+order: E1/E2 on node 2; node 2 runs the new system stably; node 1 moves
+to it; then F4's HDMI boot test on node 1 (the only slot wired to HDMI;
+HDMI is not in use on the cluster today, so nothing waits on F4); the k3s
+upgrade (cluster agent); then two more master/server nodes. The board is a
+Turing Pi 2 v2.4 (owner, to their knowledge), where EDID is broken: the
+F4 test expects a 1080p fallback picture, not the monitor's modes. No
+roadmap task yet covers moving a node onto the new system.
+
 ## Outside this repo
 
 - 👤 **Cluster handoff.** Node 2 boots with
@@ -611,3 +622,8 @@ CI run · result · cost if known · next.
   applies at its base, 0 dtbs warnings before and after, checkpatch --strict
   clean in the tree · cost not read · next: owner boot-tests on node 1, then
   sends.
+- 2026-10-20 · owner answers (F4 test, rollout) · Opus · docs only · no CI ·
+  node 1 is the master and never a test node; rollout order node 2, then
+  node 1, then k3s upgrade, then two more masters; board v2.4 (EDID
+  fallback); F4's hardware test waits for node 1's move · next: E1 on
+  node 2.

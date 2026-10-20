@@ -170,6 +170,9 @@ file". Unauthenticated API calls are limited to 60 an hour.
 ## Testing on hardware
 
 The owner does all hardware work; we provide images, exact commands and
-read the logs. A test boot must be non-persistent: interrupt U-Boot on the
+read the logs. Node 2 is the only test node. Node 1 is the cluster's
+master and main server: no test runs on it; it moves to the new system
+only after node 2 runs it stably (owner, 2026-10-20). The Turing Pi 2 is
+a v2.4 board (owner, to their knowledge; not checked from the BMC). A test boot must be non-persistent: interrupt U-Boot on the
 BMC serial console (`tpi uart`), boot `mmc0` by hand, and a power cycle
 returns the node to its NVMe system.

@@ -47,6 +47,8 @@ The base is torvalds/master 0fcb05b72344 (v7.3-rc7). `--base` is recorded in the
 **Before sending (owner):**
 
 1. Boot-test with the RK1 in **node 1** of the Turing Pi 2. Node 2, the current test node, has no HDMI port.
+   Node 1 is the cluster master, so this waits until node 1 runs the new system (roadmap, "Rollout order").
+   The board is v2.4 (EDID broken), so expect a 1080p fallback picture and no EDID modes.
    For a non-persistent test, put the patched DTB on the eMMC ESP and point GRUB's `devicetree` at it.
    Expect a picture, `/sys/class/drm/card*-HDMI-A-1/status` = connected, and `modetest -c` listing EDID modes.
    On node 2, check that the same file says `disconnected`, i.e. HPD does not float.
