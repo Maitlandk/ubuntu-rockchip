@@ -137,7 +137,9 @@ Verified on a running RK1 (turingnode2, 2026-10-14) unless marked otherwise.
 - Mainline Linux's `rk3588-turing-rk1.dtsi` already has the PCIe 3.0 x4
   CLKREQ pinctrl that U-Boot patch 0002 adds (checked against torvalds/master).
 - The node runs with `systemd.unified_cgroup_hierarchy=0` (cgroup v1). That is
-  the owner's cluster config, not this repo's; new images must not carry it.
+  the owner's cluster config, not this repo's; new images must not carry it,
+  and could not use it: 26.04's systemd 259 has no cgroup v1 (removed in
+  systemd 258, `NEWS`), so a moved node runs cgroup v2.
 
 ## Reading CI results
 
@@ -175,4 +177,7 @@ master and main server: no test runs on it; it moves to the new system
 only after node 2 runs it stably (owner, 2026-10-20). The Turing Pi 2 is
 a v2.4 board (owner, to their knowledge; not checked from the BMC). A test boot must be non-persistent: interrupt U-Boot on the
 BMC serial console (`tpi uart`), boot `mmc0` by hand, and a power cycle
-returns the node to its NVMe system.
+returns the node to its NVMe system. Moving a node onto the new system is
+planned in `docs/ROADMAP.md`, section M, with its recovery ladder: the
+BMC's `tpi flash`/`tpi advanced msd` force maskrom and reach the eMMC
+whatever is on it (read from bmcd v2.3.4's source, not tried yet; M1).
