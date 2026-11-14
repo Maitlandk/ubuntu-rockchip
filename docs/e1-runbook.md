@@ -248,7 +248,7 @@ Interrupt U-Boot, boot `mmc0` by hand, never persist anything.
    `Hit any key to stop autoboot`. With `tpi` only, from the BMC:
    `for i in $(seq 80); do tpi uart --node $N set --cmd ' '; sleep 0.25; done` (with
    the number from step 1 for `$N`), then `tpi uart --node $N get` to read what U-Boot
-   printed. (The `tpi uart` syntax is the vendor's; adapt it to your `tpi --help`.)
+   printed. (Syntax checked against the installed `tpi` 1.0.5's source; see roadmap M1.)
    Without the interrupt the node simply boots its NVMe system again; nothing
    is lost, repeat.
 3. At the `=>` prompt (U-Boot 2024.01; the boot order patched to `mmc1 nvme scsi

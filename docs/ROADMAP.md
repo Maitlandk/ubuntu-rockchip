@@ -715,20 +715,52 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
 
 - 📋 **M1. Prove the BMC recovery path, read-only** (S; 👤 owner runs,
   session writes the steps; after E1, parallel to everything else). Before
-  any loader change relies on rung 2. With node 2 drained and shut down:
-  `tpi advanced msd --node 2` (syntax per `tpi --help`); on the BMC,
-  `cat /proc/partitions` must show one new disk of about 29 GiB (the
-  eMMC; anything else, stop); `dd if=/dev/<it> bs=1M count=16 | sha256sum`
-  must equal E1's `emmc-first16MiB.sha`; then return the slot to normal
-  mode and power it on; the node boots its NVMe system. Pass: hash equal,
-  normal boot, first 16 MiB unchanged afterwards. Also record the BMC
-  firmware version (`tpi info`). **Version gap (2026-11-14):** the board's
-  BMC runs an older release than the v2.3.4 this section was read from
-  (owner). Before M1, read-only on the BMC: the bmcd and `tpi` versions,
-  and `tpi --help` for `uart`, `advanced msd` and `flash`; E1's console
-  steps depend on the same answer. If the installed release lacks the
-  maskrom route for an RK1, rung 2 does not exist yet and the BMC
-  firmware is updated before any NVMe is written (M3). A write proof, `tpi flash --node 2` of
+  any loader change relies on rung 2.
+
+  **The installed BMC (owner, 2026-11-14):** firmware 2.0.5 (Nov 2023),
+  `tpi` 1.0.5, API v1.1, so not the v2.3.4 the ladder above was read
+  from. Read from bmcd v2.0.5, tpi v1.0.5 and BMC-Firmware v2.0.5
+  source, not tried:
+  - `tpi uart`, `tpi flash` and `tpi advanced msd|normal` exist. Syntax:
+    `tpi uart get --node N`, `tpi uart set --node N --cmd ' '`,
+    `tpi advanced msd --node N`, `tpi advanced normal --node N`,
+    `tpi flash --image-path <file> --node N` (uploads from the machine
+    running `tpi`; `--local` reads a path on the BMC). E1's console steps
+    work as written.
+  - **flash:** the same maskrom route as v2.3.4. bmcd powers the slot
+    off, routes its USB to the BMC in flash mode (the node's usbboot pin
+    up), powers it on, waits 1 s, clears the pin, finds `2207:350b`, and
+    in maskrom loads its built-in `rk3588_spl_loader_v1.08.111.bin`
+    (entries 0x471, 0x472). It then writes the image from byte 0 over
+    Rockusb from userspace (libusb), and reads back as many bytes for a
+    CRC-64 check.
+  - **msd is different from v2.3.4:** the same steps up to the loader,
+    then bmcd lets go of the device and the BMC's own `rockusb` kernel
+    driver (BMC-Firmware `tp2bmc/package/rockusb`) turns it into a SCSI
+    disk **on the BMC**, `/dev/sdX`. It is not exported to a host (the USB
+    gadget export came later). **That driver had a bug in this release:**
+    "the size is not properly reported" (BMC-Firmware a0851bab, first in
+    v2.1.0). So `/proc/partitions` may not show 29 GiB here, and the size
+    check below identifies the wrong thing.
+
+  Steps for this release. With node 2 drained and shut down, and its slot
+  confirmed (E1 step 1):
+  1. `tpi advanced msd --node 2`, then on the BMC `dmesg | tail -n 30`
+     and `for d in /sys/block/sd*; do echo "$d $(cat $d/device/vendor)
+     $(cat $d/device/model) $(cat $d/size)"; done`. Exactly one new disk,
+     its vendor naming Rockchip; record the size it reports, whatever
+     it is. No such disk, or more than one: stop and power the slot off.
+  2. `dd if=/dev/sdX bs=1M count=16 | sha256sum` must equal E1's
+     `emmc-first16MiB.sha`. Nothing is written.
+  3. `tpi advanced normal --node 2`, `tpi power off --node 2`,
+     `tpi power on --node 2`: the node boots its NVMe system.
+
+  Pass: hash equal, normal boot, first 16 MiB unchanged afterwards (E1's
+  check, run on the node). If step 1 or 2 fails because of the size bug
+  (a read error inside the first 16 MiB), the read path is unproven on
+  this BMC. Then the BMC firmware is updated (the cluster's plan, phase 7)
+  before any NVMe is written (M3); `tpi flash`'s write path does not use
+  that driver, but it is not trusted unproven. A write proof, `tpi flash --node 2` of
   `emmc-first16MiB.img` (identical bytes back) and the hash again, only
   if the owner accepts a write to the loader region (question 9).
 - 📋 **M2. Stability checker** (S, after E2). A read-only script, or a
@@ -1051,3 +1083,10 @@ CI run · result · cost if known · next.
   U-Boot package no longer installed or held; build.yml enforces an
   archive-only system · not run on hardware · next: the BMC version
   check, then E1 on node 2.
+- 2026-11-14 · M1 prep (BMC version check) · Opus · docs only · no CI ·
+  owner: BMC firmware 2.0.5, tpi 1.0.5; read bmcd v2.0.5, tpi v1.0.5 and
+  BMC-Firmware v2.0.5: flash, uart and msd all exist; flash takes the
+  same maskrom route as v2.3.4; msd exposes the eMMC on the BMC through
+  its rockusb kernel driver, which in this release misreports the size
+  (fixed in v2.1.0); M1 identifies the disk by vendor instead · nothing
+  run on hardware · next: E1 on node 2, then M1.
