@@ -545,13 +545,18 @@ read the logs.
 - ⏳ **E2. Read the evidence** (S, after E1). File Launchpad bugs or
   mainline reports for anything missing; record findings in CLAUDE.md.
 
-## Rollout order (owner, 2026-10-20)
+## Rollout order (owner, 2026-11-14; replaces 2026-10-20)
 
-Node 1 is the cluster's master and main server: no test runs on it. In
-order: E1/E2 on node 2; node 2 runs the new system stably; node 1 moves
-to it; then F4's HDMI boot test on node 1 (the only slot wired to HDMI;
-HDMI is not in use on the cluster today, so nothing waits on F4); the k3s
-upgrade (cluster agent); then two more master/server nodes. The board is a
+Node 1 is the cluster's only server: no test runs on it and it moves
+**last**. In order: E1/E2 on node 2; node 2 moves and runs the new system
+stably (M3, M4); then node 4, then node 3, each the same way with its own
+soak (M9); then node 1 (M6); then F4's HDMI boot test on node 1 (the only
+slot wired to HDMI; HDMI is not in use today, so nothing waits on F4).
+The 2026-10-20 order had node 1 second; three moves before it are three
+rehearsals of its procedure. The cluster's k3s upgrade is the cluster
+agent's and is split around the moves: the part that does not need cgroup
+v2 before M3, the rest after all four nodes run the new system (M8). More
+server nodes are not part of this rollout. The board is a
 Turing Pi 2 v2.4 (owner, to their knowledge), where EDID is broken: the
 F4 test expects a 1080p fallback picture, not the monitor's modes.
 Section M plans the moves.
@@ -562,7 +567,8 @@ Planned 2026-10-20 from this file, `docs/e1-runbook.md`, bmcd v2.3.4 and
 Ubuntu's grub2 and systemd packaging; nothing here has run on hardware.
 Every hardware step is the owner's; sessions write the runbooks and read
 the logs. Each node move is a **reinstall** of a CI-built image, done
-once on node 2 and only then on node 1; each changes one thing at a time:
+first on node 2, then on nodes 4 and 3, and on node 1 last (the tasks
+keep their numbers; the order is M3, M4, M9, M6); each changes one thing at a time:
 the OS first with the U-Boot 2024.01 the node already runs, the boot
 loader later as its own step. The owner's questions are at the end of
 this section; a task that depends on one says so.
@@ -690,7 +696,13 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
   must equal E1's `emmc-first16MiB.sha`; then return the slot to normal
   mode and power it on; the node boots its NVMe system. Pass: hash equal,
   normal boot, first 16 MiB unchanged afterwards. Also record the BMC
-  firmware version (`tpi info`). A write proof, `tpi flash --node 2` of
+  firmware version (`tpi info`). **Version gap (2026-11-14):** the board's
+  BMC runs an older release than the v2.3.4 this section was read from
+  (owner). Before M1, read-only on the BMC: the bmcd and `tpi` versions,
+  and `tpi --help` for `uart`, `advanced msd` and `flash`; E1's console
+  steps depend on the same answer. If the installed release lacks the
+  maskrom route for an RK1, rung 2 does not exist yet and the BMC
+  firmware is updated before any NVMe is written (M3). A write proof, `tpi flash --node 2` of
   `emmc-first16MiB.img` (identical bytes back) and the hash again, only
   if the owner accepts a write to the loader region (question 9).
 - 📋 **M2. Stability checker** (S, after E2). A read-only script, or a
@@ -740,7 +752,7 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
     Downtime: node 2's workloads only, carried by the other nodes while it
     is drained; no cluster outage.
 - 👤 **M4. Node 2 soak** (after M3). "Stable, defined" with M2's checker.
-  The result goes into this file; node 1 waits for it.
+  The result goes into this file; the next node (M9) waits for it.
 - 📋 **M5. U-Boot v2026.10 on node 2** (M; session research and runbook,
   👤 owner runs; after M4 and M1; question 8 for whether and when). The
   OS stays as M4 left it; only the loader changes.
@@ -770,8 +782,9 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
   - The BL31 swap to mainline TF-A (C1) is yet another separate test.
     Nothing here goes near node 1 until this soak has passed.
 - 📋 **M6. Node 1: reinstall** (L; session writes
-  `docs/m6-node1-runbook.md`, 👤 owner runs; after M4). The cluster's
-  server and the main server: plan for the cluster to be without its
+  `docs/m6-node1-runbook.md`, 👤 owner runs; **last: after M9**, when
+  nodes 2, 4 and 3 have each moved and soaked). The cluster's only
+  server: plan for the cluster to be without its
   control plane for the window. Same image, same layout, same U-Boot
   2024.01 that node 2 ran M4 on; node 1's eMMC loader region is backed up
   (read only, as in E1 step 3) and never written in M6.
@@ -819,16 +832,24 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
 - 📋 **M7. U-Boot v2026.10 on node 1** (S, 👤; only if question 8 says
   so; after M5's soak and M6's soak). M5's procedure, nothing new.
 - 👤 **M8. k3s upgrade** (the cluster agent's plan, not this repo's).
-  After M6. G11 is already gone on the moved nodes (systemd 259); what is
-  left is the upgrade itself. If the datastore is SQLite, the two new
-  servers need embedded etcd: k3s documents converting a SQLite server by
-  restarting it with `--cluster-init`; which versions support that, and
-  whether before or after the upgrade, is the cluster agent's call.
-- 📋 **M9. Two more server nodes** (M per node, after M8; question 10).
-  Each node is reinstalled as in M3 (its own eMMC and NVMe checked first,
-  as M6's inventory does; only node 2's are known), soaked, then joined
-  as a k3s server by the cluster agent. The image and seed are the same;
-  nothing here is k3s-specific.
+  In two parts (owner, 2026-11-14): the steps that run on cgroup v1
+  before M3, so node 2 rejoins at the version the server has then; the
+  steps that need cgroup v2 on every node after M6, when all four run
+  the new system. G11 is gone on a moved node (systemd 259); a mix of v1
+  and v2 nodes in between is fine for Kubernetes.
+- 📋 **M9. Nodes 4 and 3** (M per node; after M4 and **before M6**;
+  node 4 first). Each is reinstalled as in M3 and soaked as in M4 before
+  the next starts, and rejoins as what it was (an agent). Node 2's
+  evidence does not cover another slot: each node first gets its own
+  read-only inventory (eMMC table, SPL banner, NVMe, as M6's inventory
+  does) and its own non-persistent boot of the image from its eMMC (E1's
+  procedure) with `scripts/e1-evidence.sh`. The Turing Pi 2 wires
+  different peripherals to each slot, so that boot also checks what only
+  that slot has: on node 4 the board's USB ports (every attached device
+  enumerates with its driver), on node 3 the board's SATA ports (the
+  controller and each disk appear; mount read-only, write nothing). What
+  runs on those nodes and how it is moved off and back is the cluster
+  agent's. The image and seed are the same; nothing here is k3s-specific.
 
 ### Questions for the owner
 
@@ -849,7 +870,9 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
    OS move (M6 does not need it)?
 9. M1's write proof: may identical bytes be written to node 2's loader
    region through the BMC to prove the restore?
-10. Which slots become the two new servers, and what do they run today?
+10. ~~Which slots become the two new servers, and what do they run
+    today?~~ Answered 2026-11-14: none in this rollout. All four nodes
+    move, in the order 2, 4, 3, 1 (M9), and keep their roles.
 
 For the cluster agent, through the owner: the current k3s version and
 datastore, node-local data on nodes 1 and 2, and G11: does anything
@@ -972,3 +995,9 @@ CI run · result · cost if known · next.
   (postinst refreshes `BOOTAA64.EFI`), systemd 259 `NEWS` (no cgroup v1 on
   26.04, so G11 comes before node 2 rejoins) · nothing run on hardware ·
   cost not read · next: E1, M1 in parallel; ten owner questions under M.
+- 2026-11-14 · owner answers (rollout order) · docs only · no CI · order
+  is now node 2, 4, 3, then node 1 last; M9 is the two other agents'
+  moves and comes before M6; the k3s upgrade is split around the moves;
+  question 10 answered; M1 notes that the board's BMC is older than the
+  bmcd source it was read from · nothing run on hardware · next: the BMC
+  version check, then E1 on node 2; questions 1-9 still open.
