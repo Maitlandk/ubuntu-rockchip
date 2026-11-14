@@ -583,7 +583,7 @@ rehearsals of its procedure. The cluster's k3s upgrade is the cluster
 agent's and is split around the moves: the part that does not need cgroup
 v2 before M3, the rest after all four nodes run the new system (M8). More
 server nodes are not part of this rollout. The board is a
-Turing Pi 2 v2.4 (owner, to their knowledge), where EDID is broken: the
+Turing Pi 2 v2.4 (owner, from the PCB), where EDID is broken: the
 F4 test expects a 1080p fallback picture, not the monitor's modes.
 Section M plans the moves.
 

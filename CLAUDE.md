@@ -193,7 +193,7 @@ The owner does all hardware work; we provide images, exact commands and
 read the logs. Node 2 is the only test node. Node 1 is the cluster's
 only server: no test runs on it, and it moves to the new system last,
 after nodes 2, 4 and 3 each run it stably (owner, 2026-11-14). The Turing Pi 2 is
-a v2.4 board (owner, to their knowledge; not checked from the BMC). A test boot must be non-persistent: interrupt U-Boot on the
+a v2.4 board (owner, read off the PCB 2026-11-14; the BMC cannot tell). A test boot must be non-persistent: interrupt U-Boot on the
 BMC serial console (`tpi uart`), boot `mmc0` by hand, and a power cycle
 returns the node to its NVMe system. Moving a node onto the new system is
 planned in `docs/ROADMAP.md`, section M, with its recovery ladder: the
