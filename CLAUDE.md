@@ -34,8 +34,9 @@ included, for the life of the release. So the installed system has:
   the kernel's `zz-update-grub`, flash-kernel's DTB link; B2, B4).
 
 A change that breaks any of these needs an upstream reason and an entry in
-`docs/ROADMAP.md` saying how it is removed again. Known exception today:
-the U-Boot package is installed and held in the image (roadmap B5).
+`docs/ROADMAP.md` saying how it is removed again. `build.yml` enforces
+the first point on every image (roadmap B5); pin files that an archive
+package ships (ubuntu-pro-client's ESM pins) are stock and allowed.
 
 **Work is planned in `docs/ROADMAP.md`**, one session per task. Read the
 task you were given there before reading code.

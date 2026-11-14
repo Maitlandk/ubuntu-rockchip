@@ -234,8 +234,18 @@ commits; nothing new is added here.
     and fail unless `BOOTAA64.EFI` equals `EFI/ubuntu/grubaa64.efi` again.
     On node 2 the same check is part of the stability checks (M2).
 
-- 📋 **B5. Keep the U-Boot package out of the installed system** (S, one
-  CI round trip). `config-image.sh` installs `u-boot-turing-rk3588` into
+- ✅ **B5. Keep the U-Boot package out of the installed system** (S, one
+  CI round trip). *Done 2026-11-14.* `build-image.sh` extracts
+  `u-boot-rockchip.bin` from the `.deb`; `config-image.sh` installs and
+  holds nothing. `build.yml` now reports and fails on non-archive apt
+  sources, holds, pin files owned by no package, installed packages the
+  archive does not offer, and `/usr/lib/u-boot` in the root. Its first run
+  (43623917847) failed on `/etc/apt/preferences.d/ubuntu-pro-esm-{apps,infra}`,
+  which `ubuntu-pro-client` ships: stock, so the check now allows pin
+  files a package owns. Evidence: run 43625398644 ✅: `U-Boot SPL 2026.10`
+  at sector 64 as before; sources `archive.ubuntu.com`, `security.ubuntu.com`
+  only; no holds; 658 packages installed, none outside the archive;
+  `/usr/lib/u-boot` absent; kernel `7.0.0-43-generic`. Original task: `config-image.sh` installs `u-boot-turing-rk3588` into
   the rootfs with `dpkg -i` and `apt-mark hold`s it: the one package on
   the system that is not from the archive, and the one hold (CLAUDE.md,
   primary goal). The node never uses it: the loader on the eMMC is not
@@ -1036,3 +1046,8 @@ CI run · result · cost if known · next.
   install · found: the image installs and holds the U-Boot package,
   the one package not from the archive · next: the BMC version check,
   then E1 on node 2.
+- 2026-11-14 · B5 · Opus · 03a27d0..HEAD · build 43623917847 ❌ (the new
+  check caught ubuntu-pro-client's own ESM pin files), 43625398644 ✅ ·
+  U-Boot package no longer installed or held; build.yml enforces an
+  archive-only system · not run on hardware · next: the BMC version
+  check, then E1 on node 2.
