@@ -35,12 +35,6 @@ fi
 # shellcheck source=/dev/null
 source "../config/flavors/${FLAVOR}.sh"
 
-uboot_package="$(basename "$(find u-boot-"${BOARD}"_*.deb | sort | tail -n1)")"
-if [ ! -e "$uboot_package" ]; then
-    echo 'Error: could not find the u-boot package'
-    exit 1
-fi
-
 setup_mountpoint() {
     local mountpoint="$1"
 
@@ -137,11 +131,6 @@ chroot $chroot_dir apt-get -y install --no-install-recommends linux-generic
 # scripts we do not use.
 echo "grub-efi-arm64 grub2/update_nvram boolean false" | chroot $chroot_dir debconf-set-selections
 chroot $chroot_dir apt-get -y -o Dpkg::Options::=--force-confold install --no-install-recommends flash-kernel grub-efi-arm64
-
-# Install U-Boot
-cp "${uboot_package}" ${chroot_dir}/tmp/
-chroot ${chroot_dir} dpkg -i "/tmp/${uboot_package}"
-chroot ${chroot_dir} apt-mark hold "$(echo "${uboot_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
 
 # Update the initramfs
 chroot ${chroot_dir} update-initramfs -u

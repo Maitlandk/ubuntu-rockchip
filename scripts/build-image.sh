@@ -147,13 +147,20 @@ echo "# <file system>     <mount point>  <type>  <options>   <dump>  <fsck>" > $
 echo "UUID=${root_uuid,,} /              ext4    defaults,x-systemd.growfs    0       1" >> ${mount_point}/writable/etc/fstab
 echo "UUID=${boot_uuid} /boot/efi      vfat    umask=0077    0       1" >> ${mount_point}/writable/etc/fstab
 
-# Write bootloader to disk image
-if [ -f "${mount_point}/writable/usr/lib/u-boot/u-boot-rockchip.bin" ]; then
-    dd if="${mount_point}/writable/usr/lib/u-boot/u-boot-rockchip.bin" of="${loop}" seek=1 bs=32k conv=fsync
-else
-    dd if="${mount_point}/writable/usr/lib/u-boot/idbloader.img" of="${loop}" seek=64 conv=notrunc
-    dd if="${mount_point}/writable/usr/lib/u-boot/u-boot.itb" of="${loop}" seek=16384 conv=notrunc
+# The boot loader at sector 64 of the disk image, taken straight from the
+# U-Boot package (u-boot-build.yml). The package is not installed in the
+# root filesystem: the node never uses it (the OS does not write the eMMC
+# loader) and it is not in the Ubuntu archive, so it would be the one
+# foreign package on an otherwise stock system (CLAUDE.md, primary goal).
+uboot_deb="$(find . -maxdepth 1 -name "u-boot-${BOARD}_*.deb" | sort | tail -n1)"
+if [ -z "${uboot_deb}" ]; then
+    echo "Error: no u-boot-${BOARD} package in build/"
+    exit 1
 fi
+uboot_dir="$(mktemp -d)"
+dpkg-deb -x "${uboot_deb}" "${uboot_dir}"
+dd if="${uboot_dir}/usr/lib/u-boot/u-boot-rockchip.bin" of="${loop}" seek=1 bs=32k conv=fsync
+rm -rf "${uboot_dir}"
 
 # Run build image hook to handle board specific changes
 if [[ $(type -t build_image_hook__"${BOARD}") == function ]]; then
