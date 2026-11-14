@@ -1,8 +1,9 @@
 # Build the Turing RK1 Ubuntu 26.04 server image.
 #
-# Natively on arm64: the U-Boot package from u-boot-build.yml, Canonical's
-# root tarball (scripts/build-rootfs.sh), Ubuntu's generic kernel and
-# u-boot-menu installed in it (scripts/config-image.sh), then the disk
+# Natively on arm64: the U-Boot package from u-boot-build.yml (its
+# u-boot-rockchip.bin goes to sector 64; the package is not installed),
+# Canonical's root tarball (scripts/build-rootfs.sh), Ubuntu's generic
+# kernel and GRUB installed in it (scripts/config-image.sh), then the disk
 # image and the two partition images for the eMMC test
 # (scripts/build-image.sh). The images are uploaded as an artifact, and
 # size, sha256, kernel, partition table and extlinux.conf are reported as
@@ -157,6 +158,33 @@ jobs:
           rw() { sudo chroot /mnt/chk/rw "$@"; }
           sudo mount -t tmpfs none /mnt/chk/rw/var/lib/apt/lists
           rw apt-get -qq update
+
+          # Stock Ubuntu (CLAUDE.md, primary goal): every apt source is the
+          # Ubuntu archive, nothing is held or pinned, and every installed
+          # package exists in the archive under its name, so apt upgrade
+          # keeps all of it current. madison lists only what the sources
+          # offer, not dpkg's status file; bash is the control that it does.
+          uris=$(rw apt-get indextargets --format '$(URI)' | sed -E 's,^(https?://[^/]+/[^/]+/).*,\1,' | sort -u)
+          bad_uris=$(echo "$uris" | grep -vE '^https?://(archive|ports|security)\.ubuntu\.com/ubuntu(-ports)?/$' || true)
+          holds=$(rw apt-mark showhold)
+          pins=$(sudo find /mnt/chk/rw/etc/apt/preferences /mnt/chk/rw/etc/apt/preferences.d -type f 2>/dev/null | sed 's,^/mnt/chk/rw,,' || true)
+          installed=$(rw dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' | awk '$1 ~ /^.i/ {print $2}' | sort -u)
+          offered=$(echo "$installed" | xargs sudo chroot /mnt/chk/rw apt-cache madison 2>/dev/null | awk -F' [|] ' '{gsub(/ /,"",$1); print $1}' | sort -u)
+          foreign=$(comm -23 <(echo "$installed") <(echo "$offered"))
+          {
+            echo
+            echo "apt sources: $(echo $uris)"
+            echo "held: ${holds:-none} · pin files: ${pins:-none}"
+            echo "installed packages: $(echo "$installed" | wc -l), not in the archive: ${foreign:-none}"
+            echo "/usr/lib/u-boot in the root: $([ -e /mnt/chk/rw/usr/lib/u-boot ] && echo present || echo absent)"
+          } >> ../report
+          echo "$offered" | grep -qx bash || echo "archive check broken: apt-cache madison does not list bash" >> ../errors
+          [ -z "$bad_uris" ] || echo "apt sources other than the Ubuntu archive: $(echo $bad_uris)" >> ../errors
+          [ -z "$holds" ] || echo "held packages: $(echo $holds)" >> ../errors
+          [ -z "$pins" ] || echo "apt pin files: $(echo $pins)" >> ../errors
+          [ -z "$foreign" ] || echo "installed packages not in the archive: $(echo $foreign)" >> ../errors
+          [ ! -e /mnt/chk/rw/usr/lib/u-boot ] || echo "/usr/lib/u-boot exists in the root filesystem" >> ../errors
+
           kver=$(echo $kvers | cut -d' ' -f1)
           other=$(rw apt-cache search --names-only '^linux-image-[0-9.]+-[0-9]+-generic$' |
                     sed 's/^linux-image-\(.*\)-generic .*/\1/' | grep -vxF "${kver%-generic}" | sort -V | head -n1)
