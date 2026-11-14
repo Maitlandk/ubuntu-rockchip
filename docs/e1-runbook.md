@@ -14,7 +14,7 @@ touching the NVMe system. A power cycle returns the node to its NVMe system.
 | Step | Reads | Writes |
 |---|---|---|
 | 2 pre-flight | NVMe system (it is running), eMMC | nothing |
-| 3 backups | eMMC (first 16 MiB, GPT, both partitions, boot partitions) | files on the Odroid |
+| 3 backups | eMMC (first 16 MiB, GPT, both partitions, boot partitions) | files on the backup host |
 | 4 write | the images | `/dev/mmcblk0p1`, `/dev/mmcblk0p2`: the stale install on the eMMC |
 | 5 seed | eMMC partitions | the label of `mmcblk0p1`, one file in `mmcblk0p2` |
 | 6 test boot | the eMMC, U-Boot RAM | RAM; the eMMC (the test system's own files) |
@@ -42,8 +42,8 @@ each is marked with STOP below:
 ## 0. Names used below
 
 ```sh
-# on the Odroid (the workstation that holds the backups and the images)
-NODE=turingnode2                # ssh name of the production node; its BMC slot is N
+# on the backup host (the workstation that holds the backups and the images)
+NODE=<node-2-ssh-name>         # ssh name of the production node (kept outside this repo); its BMC slot is N
 N=2                             # BMC slot of that node: confirm in step 1 before any tpi power command
 BMC=root@turingpi               # the Turing Pi 2 BMC
 B=~/rk1-e1                      # backups and evidence live here
@@ -72,7 +72,7 @@ mkdir -p "$B" && cd "$B"
    ESP=$(ls "$PWD"/*.esp.img.xz); ROOT=$(ls "$PWD"/*.root.img.xz)
    ```
 4. Cluster side (the cluster agent's, not this repo's): cordon and drain
-   `turingnode2`. The test boot has the same MAC, so it takes the node's DHCP
+   the node (`$NODE`). The test boot has the same MAC, so it takes the node's DHCP
    address and answers SSH with a different host key (`ssh-keygen -R` it
    afterwards); k3s is not in the image and does not run.
 5. Confirm the BMC slot before any `tpi power` command (`N`): the node's own
@@ -83,7 +83,7 @@ mkdir -p "$B" && cd "$B"
    ssh $BMC "tpi uart --node $N get" | tail -n 5     # the last console lines of slot $N: hostname, login prompt
    ```
 
-   The prompt must say `turingnode2`. If it does not, `N` is wrong: stop,
+   The prompt must show the hostname of `$NODE`. If it does not, `N` is wrong: stop,
    because `tpi power` on the wrong slot powers off another production node.
 
 ## 2. Pre-flight on the running node (read-only)
@@ -140,7 +140,7 @@ Read it, and check each of these. **STOP** if one fails.
   anything that would reach the cluster (`k3s`, join tokens, a registry
   login), say so in the report; step 5 is then not optional.
 
-## 3. Backups, to the Odroid, and verify them
+## 3. Backups, to the backup host, and verify them
 
 Everything is read from the live node; nothing is written to it. The
 eMMC is not in use by the NVMe system, so two reads of the same device agree.
@@ -241,7 +241,7 @@ Interrupt U-Boot, boot `mmc0` by hand, never persist anything.
    `ssh -t $BMC` and the BMC's terminal program for the slot's UART (see the
    Turing Pi documentation for the device name of slot $N), or the `tpi`
    route below. Keep a log file in `$B` (`script -f "$B/e1-console.log"` on
-   the Odroid before the `ssh`).
+   the backup host before the `ssh`).
 2. Reboot the node from its own OS (equivalent to a power cycle for this
    purpose, and it needs no BMC power command): `ssh $NODE sudo systemctl reboot`,
    and press Enter repeatedly on the console as soon as U-Boot prints
@@ -320,7 +320,7 @@ curl -fsSL https://raw.githubusercontent.com/Maitlandk/ubuntu-rockchip/main/scri
 bash e1-evidence.sh 120
 ```
 
-(No network at all? `scp` the script from the Odroid and run it without
+(No network at all? `scp` the script from the backup host and run it without
 the tools: it notes what is missing; the boot-path checks do not need
 them except the DTB comparison.)
 
@@ -349,7 +349,7 @@ per policy), thermal zones and cooling devices, the `pwm-fan` hwmon
 (`pwm1`) idle and every 10 s under 120 s of `stress-ng` load, `systemd`
 state and failed units, `cloud-init status`, `journalctl -b -p warning`.
 
-Copy it off: `scp /root/e1-evidence.tar.gz <odroid>:rk1-e1/` and hand it to the
+Copy it off: `scp /root/e1-evidence.tar.gz <backup-host>:rk1-e1/` and hand it to the
 session (or paste `verdicts.txt`).
 
 ## 8. F1-F3 hardware checks

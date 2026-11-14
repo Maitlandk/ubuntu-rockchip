@@ -94,7 +94,7 @@ dependencies without a reason in the commit message.
 
 ## Turing RK1 facts
 
-Verified on a running RK1 (turingnode2, 2026-10-14) unless marked otherwise.
+Verified on a running RK1 (node 2, 2026-10-14) unless marked otherwise.
 
 - No SPI flash (`/proc/mtd` is empty). The boot ROM loads U-Boot from the
   eMMC user area (sector 64). Installed: "U-Boot SPL 2024.01 (Jan 28 2024)",

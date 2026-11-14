@@ -519,7 +519,7 @@ read the logs.
 
 - 🟡 **E1. Runbook** (S, after B3). **Written: `docs/e1-runbook.md`; the
   owner runs it, nothing has been run on hardware.** It backs up the eMMC
-  (first 16 MiB, GPT, both partitions, boot partitions) to the Odroid and
+  (first 16 MiB, GPT, both partitions, boot partitions) to the backup host and
   verifies the backups; writes `*.esp.img.xz` into `mmcblk0p1` and
   `*.root.img.xz` into `mmcblk0p2` (nothing below the partitions, hashed
   before and after); makes cloud-init take the image's seed only (the NVMe's
@@ -722,9 +722,9 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
     an image CI checked and E1 booted.
   - **How:** from E1's eMMC system, booted by hand (E1 step 6), so that
     nothing on the NVMe is in use. First a full backup of `nvme0n1` to the
-    Odroid, verified like E1 step 3 (question 3: the NVMe's size and the
-    Odroid's room), plus the old system's `/etc/rancher/` and the node's
-    labels, taints and annotations (`kubectl get node turingnode2 -o
+    backup host, verified like E1 step 3 (question 3: the NVMe's size and the
+    backup host's room), plus the old system's `/etc/rancher/` and the node's
+    labels, taints and annotations (`kubectl get node <node 2> -o
     yaml`). Then a new GPT on `nvme0n1` like the image's (p1 16-272 MiB
     ESP type, p2 272 MiB to the end, Linux) and the `.esp`/`.root` images
     of a **different build** than the eMMC's written into the partitions,
@@ -792,7 +792,7 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
     (`/var/lib/rancher/k3s/server/db/`: `state.db` is SQLite, `etcd/` is
     embedded etcd); `/etc/rancher/k3s/config.yaml`; the address agents use
     (`K3S_URL`) and the TLS SANs; the pods on node 1 (`kubectl get pods
-    -A -o wide --field-selector spec.nodeName=turingnode1`: CoreDNS,
+    -A -o wide --field-selector spec.nodeName=<node 1>`: CoreDNS,
     Traefik, svclb, local-path volumes); and everything that is not k3s
     ("main server": `systemctl list-units --type=service
     --state=running`, `ss -tlnp`, crontabs, exports; question 7). Also node
@@ -805,12 +805,12 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
     token every agent and kubeconfig is orphaned. Local-path data on node
     1 as the inventory finds it.
   - **Approach** (question 6): **(a)** a new NVMe drive, written on the
-    Odroid in a USB enclosure (GPT, partition images, seed), swapped in
+    backup host in a USB enclosure (GPT, partition images, seed), swapped in
     during the window; the old drive is the rollback, untouched, and
     nothing else ever boots on node 1. **(b)** the same drive, written from
     a system booted by hand on node 1's eMMC (M3's way): that is a
     non-persistent boot on node 1, which the owner has ruled out for
-    tests. **(c)** the same drive, pulled and written on the Odroid; the
+    tests. **(c)** the same drive, pulled and written on the backup host; the
     rollback is restoring the full image.
   - **Window, for (a):** move what can move off node 1 first (CoreDNS
     replicas on other nodes, workloads; draining does not move the control
@@ -856,7 +856,7 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
 1. Reinstall rather than upgrade in place, for node 2 and node 1?
 2. Soak: how many days and reboots, for the OS move and for the U-Boot
    change, and must a kernel update land inside the OS soak?
-3. Node 2's NVMe: its size, and does the Odroid have room for a full
+3. Node 2's NVMe: its size, and does the backup host have room for a full
    image (and later node 1's)?
 4. After M3, keep E1's test system on node 2's eMMC as a rescue boot, or
    put the stale install back (E1 step 10)?
