@@ -20,6 +20,23 @@ need and ships the RK1 device tree (26.04, 7.0.0-38; details in
 `docs/ROADMAP.md`, Q1). `.github/workflows/kernel-config-check.yml` keeps
 checking that.
 
+**The primary goal (owner, 2026-11-14): a node updates like any Ubuntu
+install.** `apt-get update && apt-get upgrade` (and unattended-upgrades)
+must keep working and keep delivering Canonical's patches, kernels
+included, for the life of the release. So the installed system has:
+
+- only Ubuntu archive sources (`archive`/`ports`/`security.ubuntu.com`),
+  no PPA, no pin, no `apt-mark hold`, no package from outside the archive;
+- no file under `/usr` that a package does not own, and no edit to a
+  file a package owns; local settings go in drop-ins (`/etc/default/grub.d/`,
+  `/etc/flash-kernel/`) that package upgrades leave alone;
+- a boot path that the archive's own hooks keep current (GRUB's postinst,
+  the kernel's `zz-update-grub`, flash-kernel's DTB link; B2, B4).
+
+A change that breaks any of these needs an upstream reason and an entry in
+`docs/ROADMAP.md` saying how it is removed again. Known exception today:
+the U-Boot package is installed and held in the image (roadmap B5).
+
 **Work is planned in `docs/ROADMAP.md`**, one session per task. Read the
 task you were given there before reading code.
 

@@ -234,6 +234,22 @@ commits; nothing new is added here.
     and fail unless `BOOTAA64.EFI` equals `EFI/ubuntu/grubaa64.efi` again.
     On node 2 the same check is part of the stability checks (M2).
 
+- 📋 **B5. Keep the U-Boot package out of the installed system** (S, one
+  CI round trip). `config-image.sh` installs `u-boot-turing-rk3588` into
+  the rootfs with `dpkg -i` and `apt-mark hold`s it: the one package on
+  the system that is not from the archive, and the one hold (CLAUDE.md,
+  primary goal). The node never uses it: the loader on the eMMC is not
+  written by the OS (M3, M5), and `build-image.sh` only needs
+  `u-boot-rockchip.bin` from it, for sector 64 of the disk image. Change:
+  `build-image.sh` takes that file from the `.deb` with `dpkg-deb -x`
+  into a temporary directory; `config-image.sh` installs nothing from it.
+  Its `u-boot-install` helper leaves the system with it. Done when
+  `build.yml`'s report shows the same bytes at sector 64 as before, and
+  a check in it fails on `apt-mark showhold` output, a package with no
+  archive origin (`apt-cache policy` shows only `/var/lib/dpkg/status`),
+  or a source other than the Ubuntu archive. Before M3, so no moved node
+  carries the hold.
+
 ## C. U-Boot
 
 Not needed for the first hardware test: the RK1s already run mainline
@@ -851,32 +867,44 @@ reboot. A failure restarts the clock once its cause is known (rule 6).
   runs on those nodes and how it is moved off and back is the cluster
   agent's. The image and seed are the same; nothing here is k3s-specific.
 
-### Questions for the owner
+### Owner's answers (2026-11-14)
 
-1. Reinstall rather than upgrade in place, for node 2 and node 1?
-2. Soak: how many days and reboots, for the OS move and for the U-Boot
-   change, and must a kernel update land inside the OS soak?
-3. Node 2's NVMe: its size, and does the backup host have room for a full
-   image (and later node 1's)?
-4. After M3, keep E1's test system on node 2's eMMC as a rescue boot, or
-   put the stale install back (E1 step 10)?
-5. Layout: ESP and one root as in the image, or a separate partition for
-   `/var/lib/rancher`?
-6. Node 1: (a) new drive, (b) a helper boot on node 1's eMMC, or (c)
-   pulled drive?
-7. What runs on node 1 besides k3s, and where does each piece live
-   during and after the window? What downtime is acceptable, and when?
-8. U-Boot v2026.10: wanted at all? On node 1 too? Before or after node 1's
-   OS move (M6 does not need it)?
-9. M1's write proof: may identical bytes be written to node 2's loader
-   region through the BMC to prove the restore?
-10. ~~Which slots become the two new servers, and what do they run
-    today?~~ Answered 2026-11-14: none in this rollout. All four nodes
-    move, in the order 2, 4, 3, 1 (M9), and keep their roles.
+All ten are answered; the tasks above follow them.
 
-For the cluster agent, through the owner: the current k3s version and
-datastore, node-local data on nodes 1 and 2, and G11: does anything
-require cgroup v1, given that 26.04 cannot boot it?
+1. **Reinstall**, not upgrade in place, on every node.
+2. **Soak: 7 days, 3 reboots** (warm, cold, after `apt full-upgrade`),
+   per node. A kernel update need not land inside the soak: CI already
+   proves the second-kernel path (B2, D1). The U-Boot change is not part
+   of this rollout (8), so it has no soak yet.
+3. The NVMe drives are 500 GB. Back up **the used data, file level**
+   (plus the partition table), not a full disk image; the backup host's
+   free space is checked before each move.
+4. **Keep E1's test system on node 2's eMMC** as the rescue boot (rung 1
+   of the recovery ladder). The same holds for each node once its own
+   non-persistent boot has written its eMMC (M9).
+5. **A separate partition for `/var/lib/rancher`**, so the OS partition
+   is disposable and a later reinstall keeps the node's k3s state. No
+   image change: the move already writes its own GPT on the NVMe (M3), so
+   it creates p1 ESP, p2 root at a fixed size and p3 for
+   `/var/lib/rancher` to the end of the disk, and the node's own seed
+   mounts p3. growpart then has nothing to grow after p2 (it reports
+   no change); `x-systemd.growfs` still grows the root filesystem to p2's
+   size. M3's runbook fixes the sizes.
+6. Node 1: **(b)**, the same procedure as the other three nodes. A boot of
+   node 1's eMMC was ruled out for tests; this is the move, rehearsed
+   three times on nodes 2, 4 and 3 first.
+7. The cluster agent owns the inventory of what runs on node 1 and the
+   window; it lives outside this repo.
+8. **U-Boot v2026.10: not in this rollout.** Every node keeps the
+   loader it runs today; M5 and M7 are revisited after all four nodes
+   have moved.
+9. **Yes**, on node 2 only, identical bytes, after the BMC check under M1
+   shows that its installed release has the maskrom route.
+10. No extra servers in this rollout. All four nodes move, in the order
+    2, 4, 3, 1 (M9), and keep their roles.
+
+For the cluster agent (outside this repo): the k3s version and datastore,
+node-local data on each node, and whether any workload needs cgroup v1.
 
 ## Outside this repo
 
@@ -1001,3 +1029,10 @@ CI run · result · cost if known · next.
   question 10 answered; M1 notes that the board's BMC is older than the
   bmcd source it was read from · nothing run on hardware · next: the BMC
   version check, then E1 on node 2; questions 1-9 still open.
+- 2026-11-14 · owner answers (questions 1-9; the apt goal) · docs only ·
+  no CI · all ten answered; `/var/lib/rancher` gets its own partition at
+  move time, no image change; U-Boot stays as it is for this rollout;
+  goal recorded in CLAUDE.md: a moved node updates like any Ubuntu
+  install · found: the image installs and holds the U-Boot package,
+  the one package not from the archive · next: the BMC version check,
+  then E1 on node 2.
